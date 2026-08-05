@@ -11,9 +11,20 @@ export default function App() {
   const [view, setView] = useState<View>('landing');
   const [page, setPage] = useState<Page>('dashboard');
 
-  if (view === 'landing') {
-    return <LandingPage onOpenPreview={() => setView('preview')} />;
-  }
+ if (view === 'landing') {
+  return (
+    <>
+      <LandingPage onOpenPreview={() => setView('app')} />
+
+      <button
+        onClick={() => setView('app')}
+        className="fixed bottom-6 left-6 z-50 rounded-xl bg-[#14c8d4] px-5 py-3 font-bold text-white shadow-lg"
+      >
+        Open Dashboard
+      </button>
+    </>
+  );
+}
 
   if (view === 'preview') {
     return <DashboardPreview onBack={() => setView('landing')} />;
