@@ -1,9 +1,11 @@
+import { supabase } from '@/lib/supabase';
 import type { Clinic } from '@/types/pia';
 
 export interface ClinicSearchOptions {
     location: string;
     treatment?: string;
     openNow?: boolean;
+    maxResults?: number;
 }
 
 export interface ClinicSearchResult {
@@ -14,32 +16,33 @@ export interface ClinicSearchResult {
 export async function searchClinics(
     options: ClinicSearchOptions,
 ): Promise<ClinicSearchResult> {
-    console.log('Clinic search:', options);
+    const location = options.location.trim();
 
-    // Temporary test data.
-    // This will be replaced by the Supabase backend and real clinic search.
-    return {
-        source: 'mock',
-        clinics: [
-            {
-                id: 'test-clinic-1',
-                name: `Testklinikk i ${options.location}`,
-                address: 'Testveien 1',
-                city: options.location,
-                rating: 4.7,
-                reviewCount: 124,
-                isPartner: false,
-                isVerified: false,
-                prices: [
-                    {
-                        treatment: options.treatment ?? 'Undersøkelse',
-                        priceFrom: 900,
-                        priceTo: 1400,
-                        currency: 'NOK',
-                        sourceType: 'estimated',
-                    },
-                ],
+    if (!location) {
+        throw new Error('Location is required.');
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+        'search-clinics',
+        {
+            body: {
+                location,
+                maxResults: options.maxResults ?? 5,
             },
-        ],
+        },
+    );
+
+    if (error) {
+        console.error('Clinic search error:', error);
+        throw new Error('Kunne ikke søke etter klinikker.');
+    }
+
+    if (!data?.clinics || !Array.isArray(data.clinics)) {
+        throw new Error('Klinikksøket returnerte ugyldige data.');
+    }
+
+    return {
+        source: 'live',
+        clinics: data.clinics as Clinic[],
     };
 }

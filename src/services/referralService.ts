@@ -6,6 +6,10 @@ const REASON_LABELS: Record<string, string> = {
     checkup: 'Rutinekontroll',
     cosmetic: 'Estetisk tannbehandling',
     emergency: 'Akutt behov',
+    broken_tooth: 'Knekt tann',
+    wisdom_tooth: 'Visdomstann',
+    root_canal: 'Rotfylling',
+    cleaning: 'Tannrens',
     other: 'Annet',
 };
 
@@ -17,7 +21,9 @@ export function getReasonLabel(reason?: string) {
     return REASON_LABELS[reason] ?? 'Tannhelse';
 }
 
-export async function savePatientReferral(data: CollectedPatientData) {
+export async function savePatientReferral(
+    data: CollectedPatientData,
+) {
     if (!data.patientName) {
         throw new Error('Patient name is missing.');
     }
@@ -32,41 +38,30 @@ export async function savePatientReferral(data: CollectedPatientData) {
 
     const reasonLabel = getReasonLabel(data.reason);
 
-    const { data: conversation, error: conversationError } = await supabase
-        .from('conversations')
-        .insert({
-            patient_name: data.patientName,
-            patient_phone: data.patientPhone,
-            status: 'referred',
-            referral_clinic: data.selectedClinic.name,
-            referral_reason: reasonLabel,
-            started_at: new Date().toISOString(),
-            ended_at: new Date().toISOString(),
-        })
-        .select('id')
-        .single();
-
-    if (conversationError) {
-        throw conversationError;
-    }
-
-    const { error: referralError } = await supabase
-        .from('patient_referrals')
-        .insert({
-            conversation_id: conversation.id,
-            patient_name: data.patientName,
-            clinic_name: data.selectedClinic.name,
-            clinic_id: data.selectedClinic.id || null,
-            reason: reasonLabel,
-            status: 'confirmed',
+    const { data: result, error } =
+        await supabase.functions.invoke('create-referral', {
+            body: {
+                patientName: data.patientName,
+                patientPhone: data.patientPhone,
+                clinicName: data.selectedClinic.name,
+                clinicGooglePlaceId: data.selectedClinic.id,
+                reason: reasonLabel,
+            },
         });
 
-    if (referralError) {
-        throw referralError;
+    if (error) {
+        console.error('Create referral function error:', error);
+        throw new Error('Kunne ikke lagre forespørselen.');
+    }
+
+    if (!result?.conversationId || !result?.referralId) {
+        console.error('Invalid create-referral response:', result);
+        throw new Error('Serveren returnerte ugyldige data.');
     }
 
     return {
-        conversationId: conversation.id,
+        conversationId: result.conversationId as string,
+        referralId: result.referralId as string,
         clinic: data.selectedClinic,
         reasonLabel,
     };
