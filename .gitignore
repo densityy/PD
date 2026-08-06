@@ -21,3 +21,4 @@ dist-ssr
 *.sln
 *.sw?
 .env
+battery-report.html
