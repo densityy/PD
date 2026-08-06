@@ -5,7 +5,12 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export type ConversationStatus = 'active' | 'resolved' | 'referred' | 'pending';
+export type ConversationStatus =
+  | 'active'
+  | 'resolved'
+  | 'referred'
+  | 'pending';
+
 export type ReferralStatus =
   | 'pending'
   | 'confirmed'
@@ -56,7 +61,7 @@ export interface Dentist {
   id: string;
   clinic_id: string;
   name: string;
-  email: string | null;
+ email: string | null;
   phone: string | null;
   specialization: string | null;
   active: boolean;

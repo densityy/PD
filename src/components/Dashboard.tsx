@@ -59,78 +59,85 @@ export default function Dashboard() {
     month: 'long',
   });
 
-  useEffect(() => {
-    async function loadDashboard() {
-      setLoading(true);
+ useEffect(() => {
+  async function loadDashboard() {
+    setLoading(true);
 
-      const [
-        conversationResult,
-        referralResult,
-        dentistResult,
-        statsResult,
-      ] = await Promise.all([
-        supabase
-          .from('conversations')
-          .select('*')
-          .order('started_at', { ascending: false })
-          .limit(20),
+    const [
+      conversationResult,
+      referralResult,
+      dentistResult,
+      statsResult,
+    ] = await Promise.all([
+      supabase
+        .from('conversations')
+        .select('*')
+        .order('started_at', { ascending: false })
+        .limit(20),
 
-        supabase
-          .from('patient_referrals')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(10),
+      supabase
+        .from('patient_referrals')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10),
 
-        supabase
-          .from('dentists')
-          .select('*')
-          .eq('active', true)
-          .order('name', { ascending: true }),
+      supabase
+        .from('dentists')
+        .select('*')
+        .eq('active', true)
+        .order('name', { ascending: true }),
 
-        Promise.resolve({
-          data: [],
-          error: null,
-        }),
-      ]);
-      if (conversationResult.error) {
-        console.error('Conversation error:', conversationResult.error);
-      } else {
-        setConversations(conversationResult.data ?? []);
-      }
+      Promise.resolve({
+        data: [] as DashboardStat[],
+        error: null,
+      }),
+    ]);
 
-      if (referralResult.error) {
-        console.error('Referral error:', referralResult.error);
-      } else {
-        setReferrals(referralResult.data ?? []);
-      }
-
-      if (statsResult.error) {
-        console.error('Stats error:', statsResult.error);
-      } else {
-        setStats(statsResult.data ?? []);
-      }
-
-      setLoading(false);
+    if (conversationResult.error) {
+      console.error('Conversation error:', conversationResult.error);
+    } else {
+      setConversations(conversationResult.data ?? []);
     }
 
-    loadDashboard();
-  }, []);
+    if (referralResult.error) {
+      console.error('Referral error:', referralResult.error);
+    } else {
+      setReferrals(referralResult.data ?? []);
+    }
 
-  const todayChats =
-    stats[stats.length - 1]?.total_chats ??
-    conversations.filter(
-      (conversation) =>
-        new Date(conversation.started_at).toDateString() ===
-        now.toDateString(),
-    ).length;
+    if (dentistResult.error) {
+      console.error('Dentist error:', dentistResult.error);
+    } else {
+      setDentists(dentistResult.data ?? []);
+    }
 
-  const activeChats = conversations.filter(
-    (conversation) => conversation.status === 'active',
+    if (statsResult.error) {
+      console.error('Stats error:', statsResult.error);
+    } else {
+      setStats(statsResult.data ?? []);
+    }
+
+    setLoading(false);
+  }
+
+  loadDashboard();
+}, []);
+
+const todayChats =
+  stats[stats.length - 1]?.total_chats ??
+  conversations.filter(
+    (conversation) =>
+      new Date(conversation.started_at).toDateString() ===
+      now.toDateString(),
   ).length;
 
-  const totalReferrals = referrals.length;
+const activeChats = conversations.filter(
+  (conversation) => conversation.status === 'active',
+).length;
 
-  const confirmedReferrals = referrals.filter(
+const totalReferrals = referrals.length;
+
+const confirmedReferrals = referrals.filter(
     (referral) => referral.status === 'confirmed',
   ).length;
 
