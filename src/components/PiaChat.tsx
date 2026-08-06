@@ -6,7 +6,6 @@ import {
 } from 'react';
 import {
   CheckCircle2,
-  ExternalLink,
   MapPin,
   RotateCcw,
   Send,
@@ -15,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import { searchClinics } from '@/services/clinicService';
+import { sendMessageToPia } from '@/services/piaService';
 import {
   getReasonLabel,
   savePatientReferral,
@@ -27,25 +27,9 @@ import type {
   ConversationStep,
 } from '@/types/pia';
 
-const REASON_LABELS: Record<string, string> = {
-  toothache: 'Tannpine',
-  checkup: 'Rutinekontroll',
-  cosmetic: 'Estetisk tannbehandling',
-  emergency: 'Akutt behov',
-  other: 'Annet',
-};
-
 function isValidPhone(value: string) {
   const digits = value.replace(/\D/g, '');
   return digits.length >= 8;
-}
-
-function getReasonKey(answer: string) {
-  const matchingReason = Object.entries(REASON_LABELS).find(
-    ([, label]) => label === answer,
-  );
-
-  return matchingReason?.[0] ?? 'other';
 }
 
 export default function PiaChat() {
@@ -84,18 +68,17 @@ export default function PiaChat() {
         sender: 'pia',
         text:
           'Hei! Jeg er Pia, din digitale tannlegeresepsjonist. ' +
-          'Jeg hjelper deg med å finne riktig tannklinikk. Hva gjelder det? 🦷',
+          'Fortell meg med egne ord hva du trenger hjelp med, og gjerne hvor du befinner deg. 🦷',
         options: [
-          'Tannpine',
-          'Rutinekontroll',
-          'Estetisk tannbehandling',
-          'Akutt behov',
-          'Annet',
+          'Jeg har tannpine',
+          'Jeg trenger en kontroll',
+          'Jeg har knekt en tann',
+          'Jeg vil sammenligne priser',
         ],
       },
     ]);
 
-    setStep('reason');
+    setStep('greeting');
   };
 
   useEffect(() => {
@@ -114,31 +97,22 @@ export default function PiaChat() {
     };
   }, []);
 
-  const pushPia = (
-    message: ChatMessage,
-    delay = 400,
-  ) => {
-    setIsTyping(true);
-
-    window.setTimeout(() => {
-      setIsTyping(false);
-      setMessages((current) => [...current, message]);
-    }, delay);
+  const addPiaMessage = (message: ChatMessage) => {
+    setMessages((current) => [...current, message]);
   };
 
   const searchForClinics = async (
     locationAnswer: string,
+    treatment?: string,
   ) => {
     const location = locationAnswer.trim();
 
     if (location.length < 2) {
-      pushPia({
+      addPiaMessage({
         sender: 'pia',
         text:
-          'Skriv inn en by, et område eller et postnummer, ' +
-          'for eksempel Jessheim eller 2050.',
+          'Hvilken by, hvilket område eller postnummer ønsker du tannlege i?',
       });
-
       return;
     }
 
@@ -147,56 +121,120 @@ export default function PiaChat() {
     setCollected((current) => ({
       ...current,
       location,
+      reason: treatment ?? current.reason,
     }));
 
     try {
       const result = await searchClinics({
         location,
-        treatment: collected.reason,
+        treatment: treatment ?? collected.reason,
         maxResults: 5,
       });
 
       if (result.clinics.length === 0) {
-        pushPia(
-          {
-            sender: 'pia',
-            text:
-              `Jeg fant ingen tannklinikker for «${location}». ` +
-              'Prøv et nærliggende sted eller et postnummer.',
-          },
-          200,
-        );
-
+        addPiaMessage({
+          sender: 'pia',
+          text:
+            `Jeg fant ingen tannklinikker for «${location}». ` +
+            'Prøv et nærliggende sted eller et postnummer.',
+        });
         return;
       }
 
-      pushPia(
-        {
-          sender: 'pia',
-          text:
-            `Jeg fant ${result.clinics.length} tannklinikker ` +
-            `i eller rundt ${location}. Velg klinikken du ønsker å gå videre med.`,
-          clinics: result.clinics,
-        },
-        250,
-      );
+      addPiaMessage({
+        sender: 'pia',
+        text:
+          `Jeg fant ${result.clinics.length} tannklinikker ` +
+          `i eller rundt ${location}. Du kan velge en klinikk nedenfor.`,
+        clinics: result.clinics,
+      });
 
       setStep('clinicSelection');
     } catch (error) {
       console.error('Kunne ikke søke etter klinikker:', error);
 
-      pushPia(
-        {
-          sender: 'pia',
-          text:
-            'Beklager, jeg klarte ikke å hente klinikker akkurat nå. ' +
-            'Kontroller internettilkoblingen og prøv igjen.',
-          options: ['Prøv klinikksøk på nytt'],
-        },
-        200,
-      );
+      addPiaMessage({
+        sender: 'pia',
+        text:
+          'Beklager, jeg klarte ikke å hente klinikker akkurat nå. ' +
+          'Prøv gjerne igjen om litt.',
+      });
     } finally {
       setIsSearching(false);
+    }
+  };
+
+  const handleNaturalMessage = async (
+    answer: string,
+    historyBeforeUserMessage: ChatMessage[],
+  ) => {
+    setIsTyping(true);
+
+    try {
+      const pia = await sendMessageToPia(
+        answer,
+        historyBeforeUserMessage,
+      );
+
+      const updatedData: CollectedPatientData = {
+        ...collected,
+        location:
+          pia.extracted.location ??
+          collected.location,
+        reason:
+          pia.extracted.treatment ??
+          collected.reason,
+        severity:
+          pia.extracted.severity !== null
+            ? String(pia.extracted.severity)
+            : collected.severity,
+        duration:
+          pia.extracted.duration ??
+          collected.duration,
+      };
+
+      setCollected(updatedData);
+
+      addPiaMessage({
+        sender: 'pia',
+        text: pia.message,
+      });
+
+      if (
+        pia.actions.includes('show_emergency_advice') ||
+        pia.extracted.emergencyWarning
+      ) {
+        return;
+      }
+
+      const shouldSearch =
+        pia.actions.includes('search_clinics') ||
+        pia.actions.includes('compare_prices') ||
+        pia.extracted.wantsClinicSearch ||
+        pia.extracted.wantsPriceComparison;
+
+      const location =
+        pia.extracted.location ??
+        updatedData.location;
+
+      const treatment =
+        pia.extracted.treatment ??
+        updatedData.reason;
+
+      if (shouldSearch && location) {
+        await searchForClinics(location, treatment);
+      }
+    } catch (error) {
+      console.error('Pia conversation error:', error);
+
+      addPiaMessage({
+        sender: 'pia',
+        text:
+          'Beklager, jeg klarte ikke å behandle meldingen akkurat nå. ' +
+          'Prøv gjerne igjen.',
+      });
+    } finally {
+      setIsTyping(false);
     }
   };
 
@@ -214,7 +252,7 @@ export default function PiaChat() {
       selectedClinic: clinic,
     }));
 
-    pushPia({
+    addPiaMessage({
       sender: 'pia',
       text:
         `${clinic.name} er valgt. ` +
@@ -233,7 +271,7 @@ export default function PiaChat() {
     data: CollectedPatientData,
   ) => {
     if (!data.selectedClinic) {
-      pushPia({
+      addPiaMessage({
         sender: 'pia',
         text:
           'Du må velge en klinikk før forespørselen kan sendes.',
@@ -249,22 +287,19 @@ export default function PiaChat() {
     try {
       const result = await savePatientReferral(data);
 
-      pushPia(
-        {
-          sender: 'pia',
-          text:
-            `Takk, ${data.patientName}! Forespørselen er registrert ` +
-            `for ${result.clinic.name}. Klinikken kan kontakte deg på ` +
-            `${data.patientPhone}.`,
-          referral: {
-            clinicId: result.clinic.id,
-            clinicName: result.clinic.name,
-            reason: result.reasonLabel,
-          },
-          options: ['Ferdig'],
+      addPiaMessage({
+        sender: 'pia',
+        text:
+          `Takk, ${data.patientName}! Forespørselen er registrert ` +
+          `for ${result.clinic.name}. Klinikken kan kontakte deg på ` +
+          `${data.patientPhone}.`,
+        referral: {
+          clinicId: result.clinic.id,
+          clinicName: result.clinic.name,
+          reason: result.reasonLabel,
         },
-        250,
-      );
+        options: ['Ferdig'],
+      });
 
       setStep('done');
     } catch (error) {
@@ -273,16 +308,13 @@ export default function PiaChat() {
         error,
       );
 
-      pushPia(
-        {
-          sender: 'pia',
-          text:
-            'Beklager, noe gikk galt da forespørselen skulle lagres. ' +
-            'Ingen forespørsel ble bekreftet.',
-          options: ['Prøv på nytt', 'Start på nytt'],
-        },
-        250,
-      );
+      addPiaMessage({
+        sender: 'pia',
+        text:
+          'Beklager, noe gikk galt da forespørselen skulle lagres. ' +
+          'Ingen forespørsel ble bekreftet.',
+        options: ['Prøv på nytt', 'Start på nytt'],
+      });
 
       setStep('consent');
     } finally {
@@ -290,130 +322,16 @@ export default function PiaChat() {
     }
   };
 
-  const advance = async (answer: string) => {
-    if (step === 'reason') {
-      const reason = getReasonKey(answer);
-
-      setCollected((current) => ({
-        ...current,
-        reason,
-      }));
-
-      if (reason === 'checkup' || reason === 'cosmetic') {
-        pushPia({
-          sender: 'pia',
-          text:
-            'Hvilken by, hvilket område eller postnummer ønsker du tannlege i?',
-          options: [
-            'Oslo',
-            'Jessheim',
-            'Bergen',
-            'Trondheim',
-            'Stavanger',
-          ],
-        });
-
-        setStep('location');
-        return;
-      }
-
-      if (reason === 'emergency') {
-        pushPia({
-          sender: 'pia',
-          text:
-            'Hvor lenge har du hatt plagene?',
-          options: [
-            'Siden i dag',
-            '1–2 dager',
-            'Mer enn 3 dager',
-          ],
-        });
-
-        setStep('duration');
-        return;
-      }
-
-      pushPia({
-        sender: 'pia',
-        text:
-          'På en skala fra 1 til 10, hvor sterke er smertene?',
-        options: [
-          'Mild (1–3)',
-          'Moderat (4–6)',
-          'Sterk (7–10)',
-        ],
-      });
-
-      setStep('severity');
-      return;
-    }
-
-    if (step === 'severity') {
-      setCollected((current) => ({
-        ...current,
-        severity: answer,
-      }));
-
-      pushPia({
-        sender: 'pia',
-        text:
-          'Hvor lenge har du hatt dette problemet?',
-        options: [
-          'Siden i dag',
-          '1–2 dager',
-          'Mer enn 3 dager',
-        ],
-      });
-
-      setStep('duration');
-      return;
-    }
-
-    if (step === 'duration') {
-      setCollected((current) => ({
-        ...current,
-        duration: answer,
-      }));
-
-      pushPia({
-        sender: 'pia',
-        text:
-          'Hvilken by, hvilket område eller postnummer ønsker du tannlege i?',
-        options: [
-          'Oslo',
-          'Jessheim',
-          'Bergen',
-          'Trondheim',
-          'Stavanger',
-        ],
-      });
-
-      setStep('location');
-      return;
-    }
-
-    if (step === 'location') {
-      if (answer === 'Prøv klinikksøk på nytt') {
-        pushPia({
-          sender: 'pia',
-          text:
-            'Skriv inn byen, området eller postnummeret på nytt.',
-        });
-
-        return;
-      }
-
-      await searchForClinics(answer);
-      return;
-    }
-
+  const processAnswer = async (
+    answer: string,
+    historyBeforeUserMessage: ChatMessage[],
+  ) => {
     if (step === 'clinicSelection') {
-      pushPia({
+      addPiaMessage({
         sender: 'pia',
         text:
           'Velg en av klinikkene i listen før vi går videre.',
       });
-
       return;
     }
 
@@ -421,12 +339,11 @@ export default function PiaChat() {
       const patientName = answer.trim();
 
       if (patientName.length < 2) {
-        pushPia({
+        addPiaMessage({
           sender: 'pia',
           text:
             'Skriv inn navnet ditt, så klinikken vet hvem de skal kontakte.',
         });
-
         return;
       }
 
@@ -435,7 +352,7 @@ export default function PiaChat() {
         patientName,
       }));
 
-      pushPia({
+      addPiaMessage({
         sender: 'pia',
         text:
           `Hyggelig å møte deg, ${patientName}! ` +
@@ -448,12 +365,11 @@ export default function PiaChat() {
 
     if (step === 'phone') {
       if (!isValidPhone(answer)) {
-        pushPia({
+        addPiaMessage({
           sender: 'pia',
           text:
             'Telefonnummeret ser litt kort ut. Skriv inn minst 8 sifre.',
         });
-
         return;
       }
 
@@ -469,7 +385,7 @@ export default function PiaChat() {
       const clinic = finalData.selectedClinic;
 
       if (!clinic) {
-        pushPia({
+        addPiaMessage({
           sender: 'pia',
           text:
             'Jeg finner ikke den valgte klinikken. Velg klinikk på nytt.',
@@ -483,12 +399,11 @@ export default function PiaChat() {
         finalData.reason,
       );
 
-      pushPia({
+      addPiaMessage({
         sender: 'pia',
         text:
-          `Du har valgt ${clinic.name} for ` +
-          `${reasonLabel.toLowerCase()}. Kan jeg lagre forespørselen ` +
-          `med navnet og telefonnummeret ditt?`,
+          `Da har jeg det jeg trenger. Kan jeg sende forespørselen ` +
+          `til ${clinic.name} med navnet og telefonnummeret ditt?`,
         options: [
           'Ja, send forespørselen',
           'Nei takk',
@@ -520,7 +435,7 @@ export default function PiaChat() {
         return;
       }
 
-      pushPia({
+      addPiaMessage({
         sender: 'pia',
         text:
           'Helt i orden. Opplysningene dine ble ikke sendt eller lagret.',
@@ -540,54 +455,58 @@ export default function PiaChat() {
         return;
       }
 
-      pushPia({
+      addPiaMessage({
         sender: 'pia',
         text:
           'Takk for at du brukte Pocket Dentist. God bedring! 😊',
       });
+      return;
     }
+
+    await handleNaturalMessage(
+      answer,
+      historyBeforeUserMessage,
+    );
   };
 
-  const handleOption = (option: string) => {
-    if (isSaving || isSearching) return;
+  const submitAnswer = (answer: string) => {
+    if (
+      !answer.trim() ||
+      isSaving ||
+      isSearching ||
+      isTyping
+    ) {
+      return;
+    }
+
+    const trimmedAnswer = answer.trim();
+    const historyBeforeUserMessage = messages;
 
     setMessages((current) => [
       ...current,
       {
         sender: 'user',
-        text: option,
+        text: trimmedAnswer,
       },
     ]);
 
-    void advance(option);
+    setInput('');
+
+    void processAnswer(
+      trimmedAnswer,
+      historyBeforeUserMessage,
+    );
+  };
+
+  const handleOption = (option: string) => {
+    submitAnswer(option);
   };
 
   const handleSubmit = (
     event: FormEvent<HTMLFormElement>,
   ) => {
     event.preventDefault();
-
-    const answer = input.trim();
-
-    if (
-      !answer ||
-      isSaving ||
-      isSearching
-    ) {
-      return;
-    }
-
-    setMessages((current) => [
-      ...current,
-      {
-        sender: 'user',
-        text: answer,
-      },
-    ]);
-
-    setInput('');
-
-    void advance(answer);
+    submitAnswer(input);
   };
 
   const reset = () => {
@@ -682,8 +601,8 @@ export default function PiaChat() {
               <div
                 key={`${message.text}-${index}`}
                 className={`flex gap-2 ${message.sender === 'user'
-                  ? 'justify-end'
-                  : 'justify-start'
+                    ? 'justify-end'
+                    : 'justify-start'
                   }`}
               >
                 {message.sender === 'pia' && (
@@ -698,14 +617,14 @@ export default function PiaChat() {
 
                 <div
                   className={`max-w-[84%] ${message.sender === 'pia'
-                    ? 'w-full'
-                    : ''
+                      ? 'w-full'
+                      : ''
                     }`}
                 >
                   <div
                     className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${message.sender === 'pia'
-                      ? 'rounded-bl-sm border border-gray-100 bg-white text-gray-700'
-                      : 'rounded-br-sm bg-[#14c8d4] text-white'
+                        ? 'rounded-bl-sm border border-gray-100 bg-white text-gray-700'
+                        : 'rounded-br-sm bg-[#14c8d4] text-white'
                       }`}
                   >
                     {message.text}
@@ -731,7 +650,9 @@ export default function PiaChat() {
                                     className="mt-0.5 flex-shrink-0"
                                   />
 
-                                  <span>{clinic.address}</span>
+                                  <span>
+                                    {clinic.address}
+                                  </span>
                                 </div>
                               </div>
 
@@ -791,8 +712,7 @@ export default function PiaChat() {
                               disabled={
                                 isSaving ||
                                 isSearching ||
-                                step !==
-                                'clinicSelection'
+                                step !== 'clinicSelection'
                               }
                               className="mt-3 w-full rounded-xl bg-[#0d1e3d] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#143a6e] disabled:cursor-not-allowed disabled:opacity-40"
                             >
@@ -836,7 +756,8 @@ export default function PiaChat() {
                             }
                             disabled={
                               isSaving ||
-                              isSearching
+                              isSearching ||
+                              isTyping
                             }
                             className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-[#0d1e3d] transition-colors hover:border-[#14c8d4] hover:bg-[#f0fbfc] disabled:cursor-not-allowed disabled:opacity-50"
                           >
@@ -862,7 +783,7 @@ export default function PiaChat() {
                 <div className="rounded-2xl rounded-bl-sm border border-gray-100 bg-white px-4 py-3 shadow-sm">
                   {isSearching && (
                     <p className="mb-2 text-xs text-gray-500">
-                      Søker etter ekte klinikker…
+                      Søker etter klinikker og priser…
                     </p>
                   )}
 
@@ -907,16 +828,14 @@ export default function PiaChat() {
                   ? 'Skriv navnet ditt...'
                   : step === 'phone'
                     ? 'Skriv telefonnummer...'
-                    : step ===
-                      'clinicSelection'
+                    : step === 'clinicSelection'
                       ? 'Velg en klinikk ovenfor...'
-                      : step === 'location'
-                        ? 'Skriv by, område eller postnummer...'
-                        : 'Skriv melding...'
+                      : 'Fortell Pia hva du trenger hjelp med...'
               }
               disabled={
                 isSaving ||
                 isSearching ||
+                isTyping ||
                 step === 'clinicSelection'
               }
               className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-[#14c8d4] disabled:cursor-not-allowed disabled:opacity-60"
@@ -928,6 +847,7 @@ export default function PiaChat() {
                 !input.trim() ||
                 isSaving ||
                 isSearching ||
+                isTyping ||
                 step === 'clinicSelection'
               }
               className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#14c8d4] transition-colors hover:bg-[#0fb3be] disabled:opacity-40"
