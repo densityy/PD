@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { addPricesToClinics } from '@/services/priceService';
 import type { Clinic } from '@/types/pia';
 
 export interface ClinicSearchOptions {
@@ -13,6 +14,12 @@ export interface ClinicSearchResult {
     source: 'live' | 'cached' | 'mock';
 }
 
+interface ClinicSearchFunctionResponse {
+    location: string;
+    source: string;
+    clinics: Clinic[];
+}
+
 export async function searchClinics(
     options: ClinicSearchOptions,
 ): Promise<ClinicSearchResult> {
@@ -22,15 +29,16 @@ export async function searchClinics(
         throw new Error('Location is required.');
     }
 
-    const { data, error } = await supabase.functions.invoke(
-        'search-clinics',
-        {
-            body: {
-                location,
-                maxResults: options.maxResults ?? 5,
+    const { data, error } =
+        await supabase.functions.invoke<ClinicSearchFunctionResponse>(
+            'search-clinics',
+            {
+                body: {
+                    location,
+                    maxResults: options.maxResults ?? 5,
+                },
             },
-        },
-    );
+        );
 
     if (error) {
         console.error('Clinic search error:', error);
@@ -41,8 +49,13 @@ export async function searchClinics(
         throw new Error('Klinikksøket returnerte ugyldige data.');
     }
 
+    const clinicsWithPrices = await addPricesToClinics(
+        data.clinics,
+        options.treatment,
+    );
+
     return {
         source: 'live',
-        clinics: data.clinics as Clinic[],
+        clinics: clinicsWithPrices,
     };
 }

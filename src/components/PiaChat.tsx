@@ -682,8 +682,8 @@ export default function PiaChat() {
               <div
                 key={`${message.text}-${index}`}
                 className={`flex gap-2 ${message.sender === 'user'
-                    ? 'justify-end'
-                    : 'justify-start'
+                  ? 'justify-end'
+                  : 'justify-start'
                   }`}
               >
                 {message.sender === 'pia' && (
@@ -698,14 +698,14 @@ export default function PiaChat() {
 
                 <div
                   className={`max-w-[84%] ${message.sender === 'pia'
-                      ? 'w-full'
-                      : ''
+                    ? 'w-full'
+                    : ''
                     }`}
                 >
                   <div
                     className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${message.sender === 'pia'
-                        ? 'rounded-bl-sm border border-gray-100 bg-white text-gray-700'
-                        : 'rounded-br-sm bg-[#14c8d4] text-white'
+                      ? 'rounded-bl-sm border border-gray-100 bg-white text-gray-700'
+                      : 'rounded-br-sm bg-[#14c8d4] text-white'
                       }`}
                   >
                     {message.text}
@@ -731,32 +731,57 @@ export default function PiaChat() {
                                     className="mt-0.5 flex-shrink-0"
                                   />
 
-                                  <span>
-                                    {clinic.address}
-                                  </span>
+                                  <span>{clinic.address}</span>
                                 </div>
                               </div>
 
-                              {typeof clinic.rating ===
-                                'number' && (
-                                  <div className="flex flex-shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
-                                    <Star
-                                      size={12}
-                                      fill="currentColor"
-                                    />
+                              {typeof clinic.rating === 'number' && (
+                                <div className="flex flex-shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
+                                  <Star
+                                    size={12}
+                                    fill="currentColor"
+                                  />
 
-                                    {clinic.rating.toFixed(1)}
-                                  </div>
-                                )}
+                                  {clinic.rating.toFixed(1)}
+                                </div>
+                              )}
                             </div>
 
-                            {typeof clinic.reviewCount ===
-                              'number' && (
-                                <p className="mt-2 text-xs text-gray-400">
-                                  {clinic.reviewCount}{' '}
-                                  Google-anmeldelser
+                            {typeof clinic.reviewCount === 'number' && (
+                              <p className="mt-2 text-xs text-gray-400">
+                                {clinic.reviewCount} Google-anmeldelser
+                              </p>
+                            )}
+
+                            {clinic.prices?.map((price) => (
+                              <div
+                                key={`${clinic.id}-${price.treatment}`}
+                                className="mt-2 rounded-xl bg-[#f0fbfc] px-3 py-2"
+                              >
+                                <p className="text-xs font-medium text-[#0d1e3d]">
+                                  {price.treatment}
                                 </p>
-                              )}
+
+                                <p className="mt-0.5 text-sm font-semibold text-[#0d1e3d]">
+                                  {typeof price.priceFrom === 'number' &&
+                                    typeof price.priceTo === 'number'
+                                    ? `${price.priceFrom.toLocaleString('nb-NO')}–${price.priceTo.toLocaleString('nb-NO')} kr`
+                                    : typeof price.priceFrom === 'number'
+                                      ? `Fra ${price.priceFrom.toLocaleString('nb-NO')} kr`
+                                      : 'Pris ikke tilgjengelig'}
+                                </p>
+
+                                <p className="mt-1 text-[11px] text-gray-500">
+                                  {price.sourceType === 'clinic_submitted'
+                                    ? 'Bekreftet av klinikken'
+                                    : price.sourceType === 'clinic_website'
+                                      ? 'Publisert på klinikkens nettside'
+                                      : price.sourceType === 'manual'
+                                        ? 'Manuelt kontrollert'
+                                        : 'Veiledende pris'}
+                                </p>
+                              </div>
+                            ))}
 
                             <button
                               type="button"
