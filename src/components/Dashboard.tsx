@@ -28,6 +28,7 @@ import { supabase } from '@/lib/supabase';
 import type {
   Conversation,
   DashboardStat,
+  Dentist,
   PatientReferral,
 } from '@/lib/supabase';
 
@@ -35,9 +36,14 @@ export default function Dashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [referrals, setReferrals] = useState<PatientReferral[]>([]);
   const [stats, setStats] = useState<DashboardStat[]>([]);
-  const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
-  const [loading, setLoading] = useState(true);
 
+  const [dentists, setDentists] = useState<Dentist[]>([]);
+
+  const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
+  const [selectedReferral, setSelectedReferral] =
+    useState<PatientReferral | null>(null);
+
+  const [loading, setLoading] = useState(true);
   const now = new Date();
 
   const greeting =
@@ -57,44 +63,52 @@ export default function Dashboard() {
     async function loadDashboard() {
       setLoading(true);
 
-      const [conversationResult, referralResult, statsResult] =
-        await Promise.all([
-          supabase
-            .from('conversations')
-            .select('*')
-            .order('started_at', { ascending: false })
-            .limit(20),
+      const [
+        conversationResult,
+        referralResult,
+        dentistResult,
+        statsResult,
+      ] = await Promise.all([
+        supabase
+          .from('conversations')
+          .select('*')
+          .order('started_at', { ascending: false })
+          .limit(20),
 
-          supabase
-            .from('patient_referrals')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(10),
+        supabase
+          .from('patient_referrals')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10),
 
-          supabase
-            .from('dashboard_stats')
-            .select('*')
-            .order('stat_date', { ascending: true })
-            .limit(14),
-        ]);
+        supabase
+          .from('dentists')
+          .select('*')
+          .eq('active', true)
+          .order('name', { ascending: true }),
 
-     if (conversationResult.error) {
-  console.error('Conversation error:', conversationResult.error);
-} else {
-  setConversations(conversationResult.data ?? []);
-}
+        Promise.resolve({
+          data: [],
+          error: null,
+        }),
+      ]);
+      if (conversationResult.error) {
+        console.error('Conversation error:', conversationResult.error);
+      } else {
+        setConversations(conversationResult.data ?? []);
+      }
 
-if (referralResult.error) {
-  console.error('Referral error:', referralResult.error);
-} else {
-  setReferrals(referralResult.data ?? []);
-}
+      if (referralResult.error) {
+        console.error('Referral error:', referralResult.error);
+      } else {
+        setReferrals(referralResult.data ?? []);
+      }
 
-if (statsResult.error) {
-  console.error('Stats error:', statsResult.error);
-} else {
-  setStats(statsResult.data ?? []);
-}
+      if (statsResult.error) {
+        console.error('Stats error:', statsResult.error);
+      } else {
+        setStats(statsResult.data ?? []);
+      }
 
       setLoading(false);
     }
@@ -289,8 +303,8 @@ if (statsResult.error) {
                   type="button"
                   key={item.date}
                   className={`rounded-2xl px-2 py-4 text-center transition ${item.active
-                      ? 'bg-[#14c8d4] text-white shadow-lg shadow-[#14c8d4]/20'
-                      : 'bg-[#f7fafc] text-[#10233f] hover:bg-[#edf4f8]'
+                    ? 'bg-[#14c8d4] text-white shadow-lg shadow-[#14c8d4]/20'
+                    : 'bg-[#f7fafc] text-[#10233f] hover:bg-[#edf4f8]'
                     }`}
                 >
                   <p
@@ -490,9 +504,7 @@ if (statsResult.error) {
               ) : (
                 <ReferralsList
                   referrals={referrals}
-                  onSelect={(referral) => {
-                    console.log('Selected referral:', referral);
-                  }}
+                  onSelect={setSelectedReferral}
                 />
               )}
             </div>
@@ -608,6 +620,77 @@ if (statsResult.error) {
           </div>
         </section>
       </main>
+      {selectedReferral && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-[#10233f]/30 backdrop-blur-sm">
+          <button
+            type="button"
+            aria-label="Lukk pasientdetaljer"
+            onClick={() => setSelectedReferral(null)}
+            className="absolute inset-0 cursor-default"
+          />
+
+          <aside className="relative z-10 h-full w-full max-w-md overflow-y-auto bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-[#14a6b2]">
+                  Pasienthenvisning
+                </p>
+
+                <h2 className="mt-1 text-2xl font-black text-[#10233f]">
+                  {selectedReferral.patient_name}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedReferral(null)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-xl text-gray-500 hover:bg-gray-200"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-8 space-y-4">
+              <div className="rounded-2xl bg-[#f5f9fc] p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                  Behov
+                </p>
+
+                <p className="mt-2 text-sm font-semibold text-[#10233f]">
+                  {selectedReferral.reason}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-[#f5f9fc] p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                  Klinikk
+                </p>
+
+                <p className="mt-2 text-sm font-semibold text-[#10233f]">
+                  {selectedReferral.clinic_name}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-[#f5f9fc] p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                  Status
+                </p>
+
+                <p className="mt-2 text-sm font-semibold capitalize text-[#10233f]">
+                  {selectedReferral.status}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="mt-8 w-full rounded-2xl bg-[#14c8d4] px-5 py-3.5 font-bold text-white hover:bg-[#0fb3be]"
+            >
+              Tildel tannlege
+            </button>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

@@ -52,6 +52,17 @@ export interface PatientReferral {
   created_at: string;
 }
 
+export interface Dentist {
+  id: string;
+  clinic_id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  specialization: string | null;
+  active: boolean;
+  created_at: string;
+}
+
 export interface DashboardStat {
   id: string;
   stat_date: string;
