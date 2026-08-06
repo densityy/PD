@@ -78,17 +78,23 @@ export default function Dashboard() {
             .limit(14),
         ]);
 
-      if (conversationResult.data) {
-        setConversations(conversationResult.data);
-      }
+     if (conversationResult.error) {
+  console.error('Conversation error:', conversationResult.error);
+} else {
+  setConversations(conversationResult.data ?? []);
+}
 
-      if (referralResult.data) {
-        setReferrals(referralResult.data);
-      }
+if (referralResult.error) {
+  console.error('Referral error:', referralResult.error);
+} else {
+  setReferrals(referralResult.data ?? []);
+}
 
-      if (statsResult.data) {
-        setStats(statsResult.data);
-      }
+if (statsResult.error) {
+  console.error('Stats error:', statsResult.error);
+} else {
+  setStats(statsResult.data ?? []);
+}
 
       setLoading(false);
     }
@@ -282,16 +288,14 @@ export default function Dashboard() {
                 <button
                   type="button"
                   key={item.date}
-                  className={`rounded-2xl px-2 py-4 text-center transition ${
-                    item.active
+                  className={`rounded-2xl px-2 py-4 text-center transition ${item.active
                       ? 'bg-[#14c8d4] text-white shadow-lg shadow-[#14c8d4]/20'
                       : 'bg-[#f7fafc] text-[#10233f] hover:bg-[#edf4f8]'
-                  }`}
+                    }`}
                 >
                   <p
-                    className={`text-[11px] font-bold uppercase ${
-                      item.active ? 'text-white/75' : 'text-[#91a2b3]'
-                    }`}
+                    className={`text-[11px] font-bold uppercase ${item.active ? 'text-white/75' : 'text-[#91a2b3]'
+                      }`}
                   >
                     {item.day}
                   </p>
@@ -299,9 +303,8 @@ export default function Dashboard() {
                   <p className="mt-1 text-lg font-black">{item.date}</p>
 
                   <p
-                    className={`mt-2 text-[10px] font-bold ${
-                      item.active ? 'text-white/80' : 'text-[#14a6b2]'
-                    }`}
+                    className={`mt-2 text-[10px] font-bold ${item.active ? 'text-white/80' : 'text-[#14a6b2]'
+                      }`}
                   >
                     {item.appointments} avtaler
                   </p>
@@ -485,7 +488,12 @@ export default function Dashboard() {
                   />
                 </div>
               ) : (
-                <ReferralsList referrals={referrals} />
+                <ReferralsList
+                  referrals={referrals}
+                  onSelect={(referral) => {
+                    console.log('Selected referral:', referral);
+                  }}
+                />
               )}
             </div>
           </div>

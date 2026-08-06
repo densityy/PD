@@ -6,7 +6,12 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export type ConversationStatus = 'active' | 'resolved' | 'referred' | 'pending';
-export type ReferralStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled';
+export type ReferralStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'assigned'
+  | 'completed'
+  | 'cancelled';
 
 export interface Conversation {
   id: string;
@@ -31,10 +36,19 @@ export interface Message {
 export interface PatientReferral {
   id: string;
   conversation_id: string | null;
+
   patient_name: string;
   clinic_name: string;
   reason: string;
+
   status: ReferralStatus;
+
+  clinic_id: string | null;
+  assigned_dentist_id: string | null;
+  assigned_at: string | null;
+  appointment_at: string | null;
+  clinic_notes: string | null;
+
   created_at: string;
 }
 
