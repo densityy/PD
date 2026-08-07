@@ -106,8 +106,6 @@ export default function Dashboard() {
         setReferrals(referralResult.data ?? []);
       }
 
-      console.log("Dentist result:", dentistResult);
-
       if (dentistResult.error) {
         console.error("Dentist error:", dentistResult.error);
       } else {
@@ -151,6 +149,40 @@ export default function Dashboard() {
     { day: "Tor", date: "7", appointments: 5 },
     { day: "Fre", date: "8", appointments: 2 },
   ];
+  async function assignDentist() {
+    if (!selectedReferral || !selectedDentistId) {
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("patient_referrals")
+      .update({
+        assigned_dentist_id: selectedDentistId,
+        assigned_at: new Date().toISOString(),
+        status: "assigned",
+      })
+      .eq("id", selectedReferral.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Assign dentist error:", error);
+      return;
+    }
+
+    setReferrals((current) =>
+      current.map((referral) => referral.id === data.id ? data : referral)
+    );
+
+    setSelectedReferral(data);
+    setSelectedDentistId("");
+  }
+
+  const assignedDentist = selectedReferral?.assigned_dentist_id
+    ? dentists.find(
+      (dentist) => dentist.id === selectedReferral.assigned_dentist_id,
+    )
+    : null;
 
   return (
     <div className="min-h-screen bg-[#f3f7fb]">
@@ -666,6 +698,7 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-8 space-y-4">
+              {/* Treatment / reason */}
               <div className="rounded-2xl bg-[#f5f9fc] p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
                   Behov
@@ -676,6 +709,7 @@ export default function Dashboard() {
                 </p>
               </div>
 
+              {/* Clinic */}
               <div className="rounded-2xl bg-[#f5f9fc] p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
                   Klinikk
@@ -686,6 +720,7 @@ export default function Dashboard() {
                 </p>
               </div>
 
+              {/* Referral status */}
               <div className="rounded-2xl bg-[#f5f9fc] p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
                   Status
@@ -695,8 +730,28 @@ export default function Dashboard() {
                   {selectedReferral.status}
                 </p>
               </div>
+
+              {/* Assigned dentist */}
+              {assignedDentist && (
+                <div className="rounded-2xl bg-[#f5f9fc] p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                    Tildelt tannlege
+                  </p>
+
+                  <p className="mt-2 text-sm font-semibold text-[#10233f]">
+                    {assignedDentist.name}
+                  </p>
+
+                  {assignedDentist.specialization && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      {assignedDentist.specialization}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
+            {/* Dentist assignment */}
             <div className="mt-8 space-y-4">
               <select
                 value={selectedDentistId}
@@ -714,7 +769,9 @@ export default function Dashboard() {
 
               <button
                 type="button"
-                className="w-full rounded-2xl bg-[#14c8d4] px-5 py-3.5 font-bold text-white hover:bg-[#0fb3be]"
+                onClick={assignDentist}
+                disabled={!selectedDentistId}
+                className="w-full rounded-2xl bg-[#14c8d4] px-5 py-3.5 font-bold text-white transition hover:bg-[#0fb3be] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Tildel tannlege
               </button>
