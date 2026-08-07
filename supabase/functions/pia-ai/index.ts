@@ -1,4 +1,4 @@
-import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
+import '@supabase/functions-js/edge-runtime.d.ts';
 
 interface ChatMessage {
   sender: 'pia' | 'user';
@@ -95,7 +95,7 @@ Viktig om fakta:
 - Ikke avgjør endelig om noen har rett til offentlig tannbehandling.
 - Når pasienten spør om offentlig rettighet, sett handlingen
   check_public_eligibility slik at Pocket Dentist kan bruke en oppdatert regelkilde.
-- Når sted og behandlingsbehov er kjent, kan du sette search_clinics.
+- Når sted og behandlingsbehov er kjent, skal du normalt sette search_clinics.
 - Når pasienten ber om billigst, pris eller sammenligning, sett compare_prices.
 
 Faresignaler:

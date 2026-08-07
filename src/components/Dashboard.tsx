@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
   Bell,
@@ -16,21 +16,21 @@ import {
   Stethoscope,
   TrendingUp,
   Users,
-} from 'lucide-react';
+} from "lucide-react";
 
-import StatsCard from '@/components/StatsCard';
-import ConversationList from '@/components/ConversationList';
-import AIChatPreview from '@/components/AIChatPreview';
-import BookingChart from '@/components/BookingChart';
-import ReferralsList from '@/components/ReferralsList';
+import StatsCard from "@/components/StatsCard";
+import ConversationList from "@/components/ConversationList";
+import AIChatPreview from "@/components/AIChatPreview";
+import BookingChart from "@/components/BookingChart";
+import ReferralsList from "@/components/ReferralsList";
 
-import { supabase } from '@/lib/supabase';
+import { supabase } from "@/lib/supabase";
 import type {
   Conversation,
   DashboardStat,
   Dentist,
   PatientReferral,
-} from '@/lib/supabase';
+} from "@/lib/supabase";
 
 export default function Dashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -40,115 +40,116 @@ export default function Dashboard() {
   const [dentists, setDentists] = useState<Dentist[]>([]);
 
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
-  const [selectedReferral, setSelectedReferral] =
-    useState<PatientReferral | null>(null);
+  const [selectedReferral, setSelectedReferral] = useState<
+    PatientReferral | null
+  >(null);
+  const [selectedDentistId, setSelectedDentistId] = useState("");
 
   const [loading, setLoading] = useState(true);
   const now = new Date();
 
-  const greeting =
-    now.getHours() < 12
-      ? 'God morgen'
-      : now.getHours() < 17
-        ? 'God ettermiddag'
-        : 'God kveld';
+  const greeting = now.getHours() < 12
+    ? "God morgen"
+    : now.getHours() < 17
+    ? "God ettermiddag"
+    : "God kveld";
 
-  const dateLabel = now.toLocaleDateString('nb-NO', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
+  const dateLabel = now.toLocaleDateString("nb-NO", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
   });
 
- useEffect(() => {
-  async function loadDashboard() {
-    setLoading(true);
+  useEffect(() => {
+    async function loadDashboard() {
+      setLoading(true);
 
-    const [
-      conversationResult,
-      referralResult,
-      dentistResult,
-      statsResult,
-    ] = await Promise.all([
-      supabase
-        .from('conversations')
-        .select('*')
-        .order('started_at', { ascending: false })
-        .limit(20),
+      const [
+        conversationResult,
+        referralResult,
+        dentistResult,
+        statsResult,
+      ] = await Promise.all([
+        supabase
+          .from("conversations")
+          .select("*")
+          .order("started_at", { ascending: false })
+          .limit(20),
 
-      supabase
-        .from('patient_referrals')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(10),
+        supabase
+          .from("patient_referrals")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(10),
 
-      supabase
-        .from('dentists')
-        .select('*')
-        .eq('active', true)
-        .order('name', { ascending: true }),
+        supabase
+          .from("dentists")
+          .select("*")
+          .eq("active", true)
+          .order("name", { ascending: true }),
 
-      Promise.resolve({
-        data: [] as DashboardStat[],
-        error: null,
-      }),
-    ]);
+        Promise.resolve({
+          data: [] as DashboardStat[],
+          error: null,
+        }),
+      ]);
 
-    if (conversationResult.error) {
-      console.error('Conversation error:', conversationResult.error);
-    } else {
-      setConversations(conversationResult.data ?? []);
+      if (conversationResult.error) {
+        console.error("Conversation error:", conversationResult.error);
+      } else {
+        setConversations(conversationResult.data ?? []);
+      }
+
+      if (referralResult.error) {
+        console.error("Referral error:", referralResult.error);
+      } else {
+        setReferrals(referralResult.data ?? []);
+      }
+
+      console.log("Dentist result:", dentistResult);
+
+      if (dentistResult.error) {
+        console.error("Dentist error:", dentistResult.error);
+      } else {
+        setDentists(dentistResult.data ?? []);
+      }
+      if (statsResult.error) {
+        console.error("Stats error:", statsResult.error);
+      } else {
+        setStats(statsResult.data ?? []);
+      }
+
+      setLoading(false);
     }
 
-    if (referralResult.error) {
-      console.error('Referral error:', referralResult.error);
-    } else {
-      setReferrals(referralResult.data ?? []);
-    }
+    loadDashboard();
+  }, []);
 
-    if (dentistResult.error) {
-      console.error('Dentist error:', dentistResult.error);
-    } else {
-      setDentists(dentistResult.data ?? []);
-    }
+  const todayChats = stats[stats.length - 1]?.total_chats ??
+    conversations.filter(
+      (conversation) =>
+        new Date(conversation.started_at).toDateString() ===
+          now.toDateString(),
+    ).length;
 
-    if (statsResult.error) {
-      console.error('Stats error:', statsResult.error);
-    } else {
-      setStats(statsResult.data ?? []);
-    }
-
-    setLoading(false);
-  }
-
-  loadDashboard();
-}, []);
-
-const todayChats =
-  stats[stats.length - 1]?.total_chats ??
-  conversations.filter(
-    (conversation) =>
-      new Date(conversation.started_at).toDateString() ===
-      now.toDateString(),
+  const activeChats = conversations.filter(
+    (conversation) => conversation.status === "active",
   ).length;
 
-const activeChats = conversations.filter(
-  (conversation) => conversation.status === 'active',
-).length;
+  const totalReferrals = referrals.length;
 
-const totalReferrals = referrals.length;
-
-const confirmedReferrals = referrals.filter(
-    (referral) => referral.status === 'confirmed',
+  const confirmedReferrals = referrals.filter(
+    (referral) => referral.status === "confirmed",
   ).length;
 
   const latestRating = stats[stats.length - 1]?.avg_rating ?? 4.9;
 
   const calendarDays = [
-    { day: 'Man', date: '4', appointments: 2 },
-    { day: 'Tir', date: '5', appointments: 4 },
-    { day: 'Ons', date: '6', appointments: 3, active: true },
-    { day: 'Tor', date: '7', appointments: 5 },
-    { day: 'Fre', date: '8', appointments: 2 },
+    { day: "Man", date: "4", appointments: 2 },
+    { day: "Tir", date: "5", appointments: 4 },
+    { day: "Ons", date: "6", appointments: 3, active: true },
+    { day: "Tor", date: "7", appointments: 5 },
+    { day: "Fre", date: "8", appointments: 2 },
   ];
 
   return (
@@ -238,7 +239,7 @@ const confirmedReferrals = referrals.filter(
             subtitle={`${activeChats} aktive akkurat nå`}
             icon={MessageSquare}
             trend={{
-              value: '+12% fra i går',
+              value: "+12% fra i går",
               positive: true,
             }}
             color="teal"
@@ -250,7 +251,7 @@ const confirmedReferrals = referrals.filter(
             subtitle="Denne uken"
             icon={Users}
             trend={{
-              value: '+5 fra forrige uke',
+              value: "+5 fra forrige uke",
               positive: true,
             }}
             color="navy"
@@ -262,7 +263,7 @@ const confirmedReferrals = referrals.filter(
             subtitle={`${confirmedReferrals} bekreftet`}
             icon={Stethoscope}
             trend={{
-              value: '+3 i dag',
+              value: "+3 i dag",
               positive: true,
             }}
             color="green"
@@ -274,7 +275,7 @@ const confirmedReferrals = referrals.filter(
             subtitle="Basert på de siste svarene"
             icon={Star}
             trend={{
-              value: '+0.2 denne uken',
+              value: "+0.2 denne uken",
               positive: true,
             }}
             color="amber"
@@ -309,14 +310,16 @@ const confirmedReferrals = referrals.filter(
                 <button
                   type="button"
                   key={item.date}
-                  className={`rounded-2xl px-2 py-4 text-center transition ${item.active
-                    ? 'bg-[#14c8d4] text-white shadow-lg shadow-[#14c8d4]/20'
-                    : 'bg-[#f7fafc] text-[#10233f] hover:bg-[#edf4f8]'
-                    }`}
+                  className={`rounded-2xl px-2 py-4 text-center transition ${
+                    item.active
+                      ? "bg-[#14c8d4] text-white shadow-lg shadow-[#14c8d4]/20"
+                      : "bg-[#f7fafc] text-[#10233f] hover:bg-[#edf4f8]"
+                  }`}
                 >
                   <p
-                    className={`text-[11px] font-bold uppercase ${item.active ? 'text-white/75' : 'text-[#91a2b3]'
-                      }`}
+                    className={`text-[11px] font-bold uppercase ${
+                      item.active ? "text-white/75" : "text-[#91a2b3]"
+                    }`}
                   >
                     {item.day}
                   </p>
@@ -324,8 +327,9 @@ const confirmedReferrals = referrals.filter(
                   <p className="mt-1 text-lg font-black">{item.date}</p>
 
                   <p
-                    className={`mt-2 text-[10px] font-bold ${item.active ? 'text-white/80' : 'text-[#14a6b2]'
-                      }`}
+                    className={`mt-2 text-[10px] font-bold ${
+                      item.active ? "text-white/80" : "text-[#14a6b2]"
+                    }`}
                   >
                     {item.appointments} avtaler
                   </p>
@@ -336,19 +340,19 @@ const confirmedReferrals = referrals.filter(
             <div className="mt-6 space-y-3">
               {[
                 {
-                  time: '09:00',
-                  patient: 'Emma Larsen',
-                  treatment: 'Kontroll',
+                  time: "09:00",
+                  patient: "Emma Larsen",
+                  treatment: "Kontroll",
                 },
                 {
-                  time: '11:30',
-                  patient: 'Jonas Hansen',
-                  treatment: 'Tannpine',
+                  time: "11:30",
+                  patient: "Jonas Hansen",
+                  treatment: "Tannpine",
                 },
                 {
-                  time: '14:00',
-                  patient: 'Sara Nilsen',
-                  treatment: 'Konsultasjon',
+                  time: "14:00",
+                  patient: "Sara Nilsen",
+                  treatment: "Konsultasjon",
                 },
               ].map((appointment) => (
                 <div
@@ -419,22 +423,24 @@ const confirmedReferrals = referrals.filter(
               </button>
             </div>
 
-            {loading ? (
-              <div className="flex min-h-[380px] items-center justify-center">
-                <RefreshCw
-                  size={23}
-                  className="animate-spin text-[#14c8d4]"
-                />
-              </div>
-            ) : (
-              <div className="min-h-[380px]">
-                <ConversationList
-                  conversations={conversations}
-                  onSelect={setSelectedConv}
-                  selectedId={selectedConv?.id ?? null}
-                />
-              </div>
-            )}
+            {loading
+              ? (
+                <div className="flex min-h-[380px] items-center justify-center">
+                  <RefreshCw
+                    size={23}
+                    className="animate-spin text-[#14c8d4]"
+                  />
+                </div>
+              )
+              : (
+                <div className="min-h-[380px]">
+                  <ConversationList
+                    conversations={conversations}
+                    onSelect={setSelectedConv}
+                    selectedId={selectedConv?.id ?? null}
+                  />
+                </div>
+              )}
           </div>
         </section>
 
@@ -501,19 +507,21 @@ const confirmedReferrals = referrals.filter(
             </div>
 
             <div className="p-4 sm:p-5">
-              {loading ? (
-                <div className="flex min-h-[320px] items-center justify-center">
-                  <RefreshCw
-                    size={23}
-                    className="animate-spin text-[#14c8d4]"
+              {loading
+                ? (
+                  <div className="flex min-h-[320px] items-center justify-center">
+                    <RefreshCw
+                      size={23}
+                      className="animate-spin text-[#14c8d4]"
+                    />
+                  </div>
+                )
+                : (
+                  <ReferralsList
+                    referrals={referrals}
+                    onSelect={setSelectedReferral}
                   />
-                </div>
-              ) : (
-                <ReferralsList
-                  referrals={referrals}
-                  onSelect={setSelectedReferral}
-                />
-              )}
+                )}
             </div>
           </div>
         </section>
@@ -561,16 +569,16 @@ const confirmedReferrals = referrals.filter(
             </div>
 
             <div className="mt-5">
-              {loading ? (
-                <div className="flex h-48 items-center justify-center">
-                  <RefreshCw
-                    size={23}
-                    className="animate-spin text-[#14c8d4]"
-                  />
-                </div>
-              ) : (
-                <BookingChart stats={stats} />
-              )}
+              {loading
+                ? (
+                  <div className="flex h-48 items-center justify-center">
+                    <RefreshCw
+                      size={23}
+                      className="animate-spin text-[#14c8d4]"
+                    />
+                  </div>
+                )
+                : <BookingChart stats={stats} />}
             </div>
           </div>
 
@@ -595,8 +603,8 @@ const confirmedReferrals = referrals.filter(
             </p>
 
             <p className="mt-3 text-sm leading-6 text-white/55">
-              Estimert tid klinikken har spart på automatisert pasientdialog
-              og oppfølging.
+              Estimert tid klinikken har spart på automatisert pasientdialog og
+              oppfølging.
             </p>
 
             <div className="mt-8 space-y-3">
@@ -689,12 +697,28 @@ const confirmedReferrals = referrals.filter(
               </div>
             </div>
 
-            <button
-              type="button"
-              className="mt-8 w-full rounded-2xl bg-[#14c8d4] px-5 py-3.5 font-bold text-white hover:bg-[#0fb3be]"
-            >
-              Tildel tannlege
-            </button>
+            <div className="mt-8 space-y-4">
+              <select
+                value={selectedDentistId}
+                onChange={(e) => setSelectedDentistId(e.target.value)}
+                className="w-full rounded-2xl border border-gray-200 p-3"
+              >
+                <option value="">Velg tannlege...</option>
+
+                {dentists.map((dentist) => (
+                  <option key={dentist.id} value={dentist.id}>
+                    {dentist.name}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                className="w-full rounded-2xl bg-[#14c8d4] px-5 py-3.5 font-bold text-white hover:bg-[#0fb3be]"
+              >
+                Tildel tannlege
+              </button>
+            </div>
           </aside>
         </div>
       )}
