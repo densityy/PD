@@ -26,6 +26,7 @@ export interface Clinic {
     website?: string;
     rating?: number;
     reviewCount?: number;
+    googleMapsUrl?: string;
     distanceKm?: number;
     isPartner?: boolean;
     isVerified?: boolean;

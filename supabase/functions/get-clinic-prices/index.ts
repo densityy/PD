@@ -54,10 +54,13 @@ Deno.serve(async (request: Request) => {
 
     const googlePlaceIds = Array.isArray(body.googlePlaceIds)
       ? body.googlePlaceIds
-          .filter((id): id is string => typeof id === 'string')
-          .map((id) => id.trim())
-          .filter(Boolean)
-          .slice(0, 20)
+        .filter(
+          (id): id is string =>
+            typeof id === 'string',
+        )
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .slice(0, 20)
       : [];
 
     const treatmentCode =
@@ -100,7 +103,10 @@ Deno.serve(async (request: Request) => {
       .maybeSingle();
 
     if (treatmentError) {
-      console.error('Treatment lookup failed:', treatmentError);
+      console.error(
+        'Treatment lookup failed:',
+        treatmentError,
+      );
 
       return jsonResponse(
         { error: 'Could not find treatment.' },
@@ -115,26 +121,29 @@ Deno.serve(async (request: Request) => {
       });
     }
 
-    const { data: prices, error: pricesError } =
-      await supabaseAdmin
-        .from('clinic_prices')
-        .select(
-          `
-          google_place_id,
-          clinic_name,
-          price_from,
-          price_to,
-          currency,
-          source_type,
-          source_url,
-          verified_at
-          `,
-        )
-        .eq('treatment_id', treatment.id)
-        .in('google_place_id', googlePlaceIds);
+    const {
+      data: prices,
+      error: pricesError,
+    } = await supabaseAdmin
+      .from('clinic_prices')
+      .select(`
+        google_place_id,
+        clinic_name,
+        price_from,
+        price_to,
+        currency,
+        source_type,
+        source_url,
+        verified_at
+      `)
+      .eq('treatment_id', treatment.id)
+      .in('google_place_id', googlePlaceIds);
 
     if (pricesError) {
-      console.error('Price lookup failed:', pricesError);
+      console.error(
+        'Price lookup failed:',
+        pricesError,
+      );
 
       return jsonResponse(
         { error: 'Could not load clinic prices.' },
@@ -150,7 +159,10 @@ Deno.serve(async (request: Request) => {
       prices: prices ?? [],
     });
   } catch (error) {
-    console.error('Price function error:', error);
+    console.error(
+      'Price function error:',
+      error,
+    );
 
     return jsonResponse(
       {

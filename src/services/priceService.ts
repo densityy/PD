@@ -33,6 +33,7 @@ const REASON_TO_TREATMENT: Record<string, string> = {
     wisdom_tooth: 'wisdom_tooth',
     root_canal: 'root_canal',
     cleaning: 'dental_cleaning',
+    crown: 'crown',
 };
 
 export function getTreatmentCode(reason?: string) {
@@ -67,22 +68,29 @@ export async function addPricesToClinics(
     if (error) {
         console.error('Clinic price lookup failed:', error);
 
-        // Clinic search should still work when price lookup fails.
+        // Clinic search should still work if price lookup fails.
         return clinics;
     }
+
+    console.log('PRICE LOOKUP:', {
+        treatmentCode,
+        data,
+    });
 
     if (!data?.treatment || !Array.isArray(data.prices)) {
         return clinics;
     }
 
-    const pricesByClinicId = new Map(
+    const treatment = data.treatment;
+
+    const pricesByClinicId = new Map<string, StoredClinicPrice>(
         data.prices.map((price) => [
             price.google_place_id,
             price,
         ]),
     );
 
-    return clinics.map((clinic) => {
+    return clinics.map((clinic): Clinic => {
         const storedPrice = pricesByClinicId.get(clinic.id);
 
         if (!storedPrice) {
@@ -90,7 +98,7 @@ export async function addPricesToClinics(
         }
 
         const clinicPrice: ClinicPrice = {
-            treatment: data.treatment?.name ?? treatmentCode,
+            treatment: treatment.name,
             priceFrom: storedPrice.price_from ?? undefined,
             priceTo: storedPrice.price_to ?? undefined,
             currency: 'NOK',
