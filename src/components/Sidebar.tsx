@@ -7,15 +7,15 @@ import {
   MessageCircle,
   Settings,
   Users,
-} from 'lucide-react';
+} from "lucide-react";
 
 type Page =
-  | 'dashboard'
-  | 'booking'
-  | 'patients'
-  | 'ai-assistant'
-  | 'reports'
-  | 'settings';
+  | "dashboard"
+  | "booking"
+  | "patients"
+  | "ai-assistant"
+  | "reports"
+  | "settings";
 
 interface SidebarProps {
   activePage: Page;
@@ -28,33 +28,33 @@ const navItems: {
   icon: React.ElementType;
 }[] = [
   {
-    id: 'dashboard',
-    label: 'Oversikt',
+    id: "dashboard",
+    label: "Oversikt",
     icon: Home,
   },
   {
-    id: 'booking',
-    label: 'Booking',
+    id: "booking",
+    label: "Booking",
     icon: CalendarDays,
   },
   {
-    id: 'patients',
-    label: 'Pasienter',
+    id: "patients",
+    label: "Pasienter",
     icon: Users,
   },
   {
-    id: 'ai-assistant',
-    label: 'AI-assistent',
+    id: "ai-assistant",
+    label: "AI-assistent",
     icon: Bot,
   },
   {
-    id: 'reports',
-    label: 'Rapporter',
+    id: "reports",
+    label: "Rapporter",
     icon: BarChart3,
   },
   {
-    id: 'settings',
-    label: 'Innstillinger',
+    id: "settings",
+    label: "Innstillinger",
     icon: Settings,
   },
 ];
@@ -125,18 +125,16 @@ export default function Sidebar({
                   onClick={() => onNavigate(id)}
                   className={`group flex w-full items-center gap-4 rounded-xl px-4 py-3.5 text-sm font-bold transition-all ${
                     isActive
-                      ? 'bg-gradient-to-r from-[#10a9c1] to-[#0b91ae] text-white shadow-lg shadow-cyan-950/30'
-                      : 'text-white/75 hover:bg-white/8 hover:text-white'
+                      ? "bg-gradient-to-r from-[#10a9c1] to-[#0b91ae] text-white shadow-lg shadow-cyan-950/30"
+                      : "text-white/75 hover:bg-white/8 hover:text-white"
                   }`}
                 >
                   <Icon
                     size={21}
                     strokeWidth={2}
-                    className={
-                      isActive
-                        ? 'text-white'
-                        : 'text-white/70 group-hover:text-white'
-                    }
+                    className={isActive
+                      ? "text-white"
+                      : "text-white/70 group-hover:text-white"}
                   />
 
                   <span>{label}</span>

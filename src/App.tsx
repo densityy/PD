@@ -4,6 +4,7 @@ import Dashboard from "@/components/Dashboard";
 import LandingPage from "@/components/LandingPage";
 import DashboardPreview from "@/components/DashboardPreview";
 import ClinicFinder from "@/pages/ClinicFinder";
+import PriceImportAdmin from "@/pages/PriceImportAdmin";
 
 type Page =
   | "dashboard"
@@ -17,7 +18,8 @@ type View =
   | "landing"
   | "app"
   | "preview"
-  | "clinics";
+  | "clinics"
+  | "price-admin";
 
 export default function App() {
   const [view, setView] = useState<View>("landing");
@@ -26,7 +28,9 @@ export default function App() {
   if (view === "landing") {
     return (
       <>
-        <LandingPage onOpenPreview={() => setView("app")} />
+        <LandingPage
+          onOpenPreview={() => setView("app")}
+        />
 
         <button
           onClick={() => setView("app")}
@@ -41,6 +45,13 @@ export default function App() {
         >
           Finn klinikk
         </button>
+
+        <button
+          onClick={() => setView("price-admin")}
+          className="fixed bottom-6 right-6 z-50 rounded-xl bg-[#10233f] px-5 py-3 font-bold text-white shadow-lg"
+        >
+          Prisadmin
+        </button>
       </>
     );
   }
@@ -53,6 +64,10 @@ export default function App() {
     );
   }
 
+  if (view === "price-admin") {
+    return <PriceImportAdmin />;
+  }
+
   if (view === "preview") {
     return (
       <DashboardPreview
@@ -62,7 +77,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#f3f7fb]">
+    <div className="flex min-h-screen bg-[#f4f8fb]">
       <Sidebar
         activePage={page}
         onNavigate={setPage}

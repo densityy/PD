@@ -313,7 +313,7 @@ Rules:
 - If several variants of the same treatment are listed, use the lowest supported value as priceFrom and the highest supported value as priceTo.
 - If the page only states "fra" / "from", use that value as priceFrom and set priceTo to null.
 - If one exact price is published, set priceFrom and priceTo to the same value.
-- sourceText must be a short excerpt supporting the extracted value.
+- sourceText must be a very short excerpt supporting the extracted value, maximum 160 characters.
 
 Allowed treatment codes:
 - examination
@@ -410,7 +410,7 @@ Allowed treatment codes:
                         effort: 'low',
                     },
 
-                    max_output_tokens: 1800,
+                    max_output_tokens: 3000,
                 }),
             },
         );
@@ -454,14 +454,23 @@ Allowed treatment codes:
         } catch (error) {
             console.error(
                 'Could not parse extracted prices:',
-                outputText,
-                error,
+                {
+                    outputText,
+                    responseStatus:
+                        extractionBody.status ?? null,
+                    incompleteDetails:
+                        extractionBody.incomplete_details ?? null,
+                    error,
+                },
             );
 
             return jsonResponse(
                 {
                     error:
                         'Price extraction returned invalid data.',
+                    reason:
+                        extractionBody.incomplete_details ??
+                        'Could not parse structured output.',
                 },
                 502,
             );
