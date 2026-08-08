@@ -30,69 +30,188 @@ function decodeHtml(value: string) {
         .replace(/&nbsp;/gi, ' ');
 }
 
-function pageLooksLikePriceList(html: string) {
-    const text = decodeHtml(
+function stripTrackingParams(url: string) {
+    try {
+        const parsed = new URL(url);
+
+        const blockedPrefixes = [
+            'utm_',
+            'gclid',
+            'fbclid',
+            'od',
+        ];
+
+        for (const key of [...parsed.searchParams.keys()]) {
+            const lower = key.toLowerCase();
+
+            if (
+                blockedPrefixes.some((prefix) =>
+                    lower.startsWith(prefix),
+                )
+            ) {
+                parsed.searchParams.delete(key);
+            }
+        }
+
+        return parsed.toString();
+    } catch {
+        return url;
+    }
+}
+
+function cleanPageText(html: string) {
+    return decodeHtml(
         html
             .replace(/<script[\s\S]*?<\/script>/gi, ' ')
             .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+            .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
             .replace(/<[^>]+>/g, ' ')
             .replace(/\s+/g, ' ')
-            .toLowerCase(),
+            .trim(),
     );
+}
 
-    const hasCurrency =
-        text.includes(' kr') ||
-        text.includes('kr ') ||
-        text.includes(',-');
+function normalizeText(value: string) {
+    return value
+        .toLowerCase()
+        .replace(/æ/g, 'ae')
+        .replace(/ø/g, 'o')
+        .replace(/å/g, 'a')
+        .replace(/[^a-z0-9\s/_-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
 
-    const dentalWords = [
-        'undersøkelse',
-        'tannrens',
+function pricePageScore(
+    html: string,
+    url: string,
+    clinicCity?: string | null,
+) {
+    const rawText = cleanPageText(html);
+
+    const text =
+        normalizeText(rawText);
+
+    const lowerUrl =
+        normalizeText(url);
+
+    let score = 0;
+
+    const strongUrlTerms = [
+        '/priser',
+        '/prisliste',
+        '/price',
+        '/prices',
+        'behandlinger-og-priser',
+        'priser-og-betaling',
+        'priser-og-refusjon',
+    ];
+
+    for (const term of strongUrlTerms) {
+        if (
+            lowerUrl.includes(
+                normalizeText(term),
+            )
+        ) {
+            score += 8;
+        }
+    }
+
+    const headingTerms = [
+        'prisliste',
+        'vare priser',
+        'priser',
+        'behandlingspriser',
+        'tannlegepriser',
+    ];
+
+    for (const term of headingTerms) {
+        if (text.includes(term)) {
+            score += 3;
+        }
+    }
+
+    const dentalTerms = [
+        'undersokelse',
+        'akutt',
         'fylling',
         'rotfylling',
         'krone',
-        'tannbleking',
-        'tannimplantat',
         'implantat',
-        'tannrekking',
+        'tannbleking',
+        'tannrens',
         'tanntrekking',
+        'visdomstann',
     ];
 
-    const treatmentMatches = dentalWords.filter((word) =>
-        text.includes(word)
-    ).length;
+    const matches =
+        dentalTerms.filter((term) =>
+            text.includes(term),
+        ).length;
 
-    return hasCurrency && treatmentMatches >= 2;
+    score += matches * 2;
+
+    const currencyPatterns = [
+        /\bkr\s?\d/gi,
+        /\d[\d\s.]*\s?kr\b/gi,
+        /\d[\d\s.]*,-/gi,
+    ];
+
+    let priceHits = 0;
+
+    for (const pattern of currencyPatterns) {
+        const found =
+            rawText.match(pattern);
+
+        priceHits +=
+            found?.length ?? 0;
+    }
+
+    score += Math.min(
+        priceHits,
+        12,
+    );
+
+    // Prefer a price page that explicitly
+    // matches this clinic's city.
+    if (clinicCity) {
+        const city =
+            normalizeText(clinicCity);
+
+        if (
+            lowerUrl.includes(city) ||
+            text.includes(city)
+        ) {
+            score += 10;
+        }
+    }
+
+    return score;
 }
 
-function extractPriceLinks(
+function extractInternalLinks(
     html: string,
     websiteUrl: string,
 ) {
-    const links: string[] = [];
+    const baseUrl = new URL(websiteUrl);
+
+    const links: Array<{
+        url: string;
+        score: number;
+    }> = [];
 
     const linkRegex =
         /<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
     let match: RegExpExecArray | null;
 
-    const baseUrl = new URL(websiteUrl);
-
     while ((match = linkRegex.exec(html)) !== null) {
         const href = decodeHtml(match[1]);
+
         const anchorText = decodeHtml(
             match[2].replace(/<[^>]+>/g, ' '),
         ).toLowerCase();
-
-        const searchable =
-            `${href} ${anchorText}`.toLowerCase();
-
-        if (
-            !searchable.includes('pris') &&
-            !searchable.includes('price')
-        ) {
-            continue;
-        }
 
         try {
             const candidate = new URL(
@@ -100,7 +219,6 @@ function extractPriceLinks(
                 websiteUrl,
             );
 
-            // Only accept links on the clinic's own website.
             if (
                 candidate.hostname !==
                 baseUrl.hostname
@@ -108,13 +226,124 @@ function extractPriceLinks(
                 continue;
             }
 
-            links.push(candidate.toString());
+            const searchable =
+                `${candidate.pathname} ${anchorText}`.toLowerCase();
+
+            let score = 0;
+
+            if (searchable.includes('prisliste')) {
+                score += 20;
+            }
+
+            if (searchable.includes('priser')) {
+                score += 18;
+            }
+
+            if (searchable.includes('pris')) {
+                score += 12;
+            }
+
+            if (searchable.includes('price')) {
+                score += 10;
+            }
+
+            if (
+                searchable.includes('behandling') &&
+                searchable.includes('pris')
+            ) {
+                score += 12;
+            }
+
+            if (
+                searchable.includes('refusjon') ||
+                searchable.includes('betaling')
+            ) {
+                score += 5;
+            }
+
+            if (score > 0) {
+                links.push({
+                    url: stripTrackingParams(
+                        candidate.toString(),
+                    ),
+                    score,
+                });
+            }
         } catch {
             // Ignore malformed links.
         }
     }
 
-    return [...new Set(links)];
+    const deduplicated = new Map<
+        string,
+        number
+    >();
+
+    for (const link of links) {
+        const old =
+            deduplicated.get(link.url) ?? 0;
+
+        if (link.score > old) {
+            deduplicated.set(
+                link.url,
+                link.score,
+            );
+        }
+    }
+
+    return [...deduplicated.entries()]
+        .map(([url, score]) => ({
+            url,
+            score,
+        }))
+        .sort(
+            (a, b) =>
+                b.score - a.score,
+        );
+}
+
+async function fetchHtml(url: string) {
+    try {
+        const response = await fetch(url, {
+            redirect: 'follow',
+            headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (compatible; PocketDentistPriceDiscovery/1.0)',
+                Accept:
+                    'text/html,application/xhtml+xml',
+            },
+        });
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const contentType =
+            response.headers.get(
+                'content-type',
+            ) ?? '';
+
+        if (
+            !contentType.includes(
+                'text/html',
+            )
+        ) {
+            return null;
+        }
+
+        const html =
+            await response.text();
+
+        return {
+            html,
+            finalUrl:
+                stripTrackingParams(
+                    response.url || url,
+                ),
+        };
+    } catch {
+        return null;
+    }
 }
 
 Deno.serve(async (request: Request) => {
@@ -142,8 +371,10 @@ Deno.serve(async (request: Request) => {
                 'SUPABASE_SERVICE_ROLE_KEY',
             );
 
-        const googleMapsApiKey =
-            Deno.env.get('GOOGLE_PLACES_API_KEY');
+        const googlePlacesApiKey =
+            Deno.env.get(
+                'GOOGLE_PLACES_API_KEY',
+            );
 
         const adminKey =
             Deno.env.get(
@@ -153,7 +384,7 @@ Deno.serve(async (request: Request) => {
         if (
             !supabaseUrl ||
             !serviceRoleKey ||
-            !googleMapsApiKey ||
+            !googlePlacesApiKey ||
             !adminKey
         ) {
             return jsonResponse(
@@ -188,7 +419,8 @@ Deno.serve(async (request: Request) => {
         if (!jobId) {
             return jsonResponse(
                 {
-                    error: 'jobId is required.',
+                    error:
+                        'jobId is required.',
                 },
                 400,
             );
@@ -213,21 +445,17 @@ Deno.serve(async (request: Request) => {
                 'clinic_price_refresh_queue',
             )
             .select(`
-        id,
-        google_place_id,
-        clinic_name,
-        source_url,
-        status
-      `)
+  id,
+  google_place_id,
+  clinic_name,
+  clinic_city,
+  source_url,
+  status
+`)
             .eq('id', jobId)
             .maybeSingle();
 
         if (jobError) {
-            console.error(
-                'Queue lookup failed:',
-                jobError,
-            );
-
             return jsonResponse(
                 {
                     error:
@@ -247,38 +475,26 @@ Deno.serve(async (request: Request) => {
             );
         }
 
-        if (job.source_url) {
-            return jsonResponse({
-                discovered: true,
-                cachedSource: true,
-                sourceUrl: job.source_url,
-            });
-        }
+        const placeResponse =
+            await fetch(
+                `https://places.googleapis.com/v1/places/${encodeURIComponent(
+                    job.google_place_id,
+                )}`,
+                {
+                    headers: {
+                        'X-Goog-Api-Key':
+                            googlePlacesApiKey,
 
-        // Get official website from Google Places.
-        const placeResponse = await fetch(
-            `https://places.googleapis.com/v1/places/${encodeURIComponent(
-                job.google_place_id,
-            )}`,
-            {
-                headers: {
-                    'X-Goog-Api-Key':
-                        googleMapsApiKey,
-                    'X-Goog-FieldMask':
-                        'websiteUri',
+                        'X-Goog-FieldMask':
+                            'websiteUri',
+                    },
                 },
-            },
-        );
+            );
 
         const placeBody =
             await placeResponse.json();
 
         if (!placeResponse.ok) {
-            console.error(
-                'Google Place Details failed:',
-                placeBody,
-            );
-
             return jsonResponse(
                 {
                     error:
@@ -291,7 +507,9 @@ Deno.serve(async (request: Request) => {
         const websiteUrl =
             typeof placeBody.websiteUri ===
                 'string'
-                ? placeBody.websiteUri
+                ? stripTrackingParams(
+                    placeBody.websiteUri,
+                )
                 : null;
 
         if (!websiteUrl) {
@@ -302,35 +520,15 @@ Deno.serve(async (request: Request) => {
             });
         }
 
-        const website = new URL(
-            websiteUrl,
-        );
+        const website =
+            new URL(websiteUrl);
 
-        if (
-            website.protocol !== 'https:' &&
-            website.protocol !== 'http:'
-        ) {
-            return jsonResponse({
-                discovered: false,
-                reason:
-                    'Clinic website URL is not HTTP/HTTPS.',
-            });
-        }
+        const homepage =
+            await fetchHtml(
+                websiteUrl,
+            );
 
-        const homeResponse = await fetch(
-            websiteUrl,
-            {
-                redirect: 'follow',
-                headers: {
-                    'User-Agent':
-                        'Mozilla/5.0 (compatible; PocketDentistPriceDiscovery/1.0)',
-                    Accept:
-                        'text/html,application/xhtml+xml',
-                },
-            },
-        );
-
-        if (!homeResponse.ok) {
+        if (!homepage) {
             return jsonResponse({
                 discovered: false,
                 websiteUrl,
@@ -339,65 +537,53 @@ Deno.serve(async (request: Request) => {
             });
         }
 
-        const homepageHtml =
-            await homeResponse.text();
-
-        // Homepage itself might be the price page.
-        if (
-            pageLooksLikePriceList(
-                homepageHtml,
-            )
-        ) {
-            await supabaseAdmin
-                .from(
-                    'clinic_price_refresh_queue',
-                )
-                .update({
-                    source_url: websiteUrl,
-                })
-                .eq('id', job.id);
-
-            return jsonResponse({
-                discovered: true,
-                websiteUrl,
-                sourceUrl: websiteUrl,
-            });
-        }
-
-        const discoveredLinks =
-            extractPriceLinks(
-                homepageHtml,
-                websiteUrl,
+        const internalLinks =
+            extractInternalLinks(
+                homepage.html,
+                homepage.finalUrl,
             );
 
-        // Also try common price-page paths,
-        // but only on the verified clinic domain.
         const commonPaths = [
             '/priser/',
             '/priser',
             '/prisliste/',
             '/prisliste',
+            '/behandlinger-og-priser/',
+            '/behandlinger-og-priser',
+            '/priser-og-betaling/',
+            '/priser-og-betaling',
+            '/priser-og-refusjon/',
+            '/priser-og-refusjon',
             '/tannlege-priser/',
             '/tannlege-priser',
         ];
 
         const candidateUrls = [
-            ...discoveredLinks,
+            ...internalLinks.map(
+                (item) => item.url,
+            ),
+
             ...commonPaths.map(
                 (path) =>
                     new URL(
                         path,
-                        websiteUrl,
+                        homepage.finalUrl,
                     ).toString(),
             ),
         ];
 
         const uniqueCandidates = [
-            ...new Set(candidateUrls),
-        ].slice(0, 12);
+            ...new Set(
+                candidateUrls.map(
+                    stripTrackingParams,
+                ),
+            ),
+        ].slice(0, 20);
 
-        let sourceUrl: string | null =
+        let bestUrl: string | null =
             null;
+
+        let bestScore = 0;
 
         for (
             const candidateUrl of
@@ -407,7 +593,6 @@ Deno.serve(async (request: Request) => {
                 const candidate =
                     new URL(candidateUrl);
 
-                // Never leave the clinic's domain.
                 if (
                     candidate.hostname !==
                     website.hostname
@@ -415,46 +600,30 @@ Deno.serve(async (request: Request) => {
                     continue;
                 }
 
-                const response =
-                    await fetch(candidateUrl, {
-                        redirect: 'follow',
-                        headers: {
-                            'User-Agent':
-                                'Mozilla/5.0 (compatible; PocketDentistPriceDiscovery/1.0)',
-                            Accept:
-                                'text/html,application/xhtml+xml',
-                        },
-                    });
+                const page =
+                    await fetchHtml(
+                        candidateUrl,
+                    );
 
-                if (!response.ok) {
+                if (!page) {
                     continue;
                 }
 
-                const contentType =
-                    response.headers.get(
-                        'content-type',
-                    ) ?? '';
+                const score =
+                    pricePageScore(
+                        page.html,
+                        page.finalUrl,
+                        job.clinic_city,
+                    );
 
-                if (
-                    !contentType.includes(
-                        'text/html',
-                    )
-                ) {
-                    continue;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestUrl =
+                        page.finalUrl;
                 }
 
-                const html =
-                    await response.text();
-
-                if (
-                    pageLooksLikePriceList(
-                        html,
-                    )
-                ) {
-                    sourceUrl =
-                        response.url ||
-                        candidateUrl;
-
+                // Strong enough to stop early.
+                if (score >= 20) {
                     break;
                 }
             } catch {
@@ -462,12 +631,34 @@ Deno.serve(async (request: Request) => {
             }
         }
 
-        if (!sourceUrl) {
+        // Only consider homepage as fallback.
+        const homepageScore =
+            pricePageScore(
+                homepage.html,
+                homepage.finalUrl,
+                job.clinic_city,
+            );
+
+        if (
+            !bestUrl &&
+            homepageScore >= 18
+        ) {
+            bestUrl =
+                homepage.finalUrl;
+
+            bestScore =
+                homepageScore;
+        }
+
+        if (!bestUrl) {
             return jsonResponse({
                 discovered: false,
-                websiteUrl,
+                websiteUrl:
+                    homepage.finalUrl,
+
                 checkedCandidates:
                     uniqueCandidates.length,
+
                 reason:
                     'No verified price page was found.',
             });
@@ -480,16 +671,14 @@ Deno.serve(async (request: Request) => {
                 'clinic_price_refresh_queue',
             )
             .update({
-                source_url: sourceUrl,
+                source_url:
+                    stripTrackingParams(
+                        bestUrl,
+                    ),
             })
             .eq('id', job.id);
 
         if (updateError) {
-            console.error(
-                'Could not save price source:',
-                updateError,
-            );
-
             return jsonResponse(
                 {
                     error:
@@ -501,9 +690,23 @@ Deno.serve(async (request: Request) => {
 
         return jsonResponse({
             discovered: true,
-            clinicName: job.clinic_name,
-            websiteUrl,
-            sourceUrl,
+
+            clinicName:
+                job.clinic_name,
+
+            websiteUrl:
+                homepage.finalUrl,
+
+            sourceUrl:
+                stripTrackingParams(
+                    bestUrl,
+                ),
+
+            score:
+                bestScore,
+
+            checkedCandidates:
+                uniqueCandidates.length,
         });
     } catch (error) {
         console.error(

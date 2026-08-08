@@ -4,6 +4,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 interface QueueRequest {
     googlePlaceId: string;
     clinicName: string;
+    clinicCity?: string | null;
     sourceUrl?: string | null;
 }
 
@@ -43,7 +44,9 @@ Deno.serve(async (request: Request) => {
             Deno.env.get('SUPABASE_URL');
 
         const serviceRoleKey =
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+            Deno.env.get(
+                'SUPABASE_SERVICE_ROLE_KEY',
+            );
 
         if (!supabaseUrl || !serviceRoleKey) {
             return jsonResponse(
@@ -64,8 +67,15 @@ Deno.serve(async (request: Request) => {
         const clinicName =
             body.clinicName?.trim();
 
+        const clinicCity =
+            typeof body.clinicCity === 'string'
+                ? body.clinicCity.trim() || null
+                : null;
+
         const sourceUrl =
-            body.sourceUrl?.trim() || null;
+            typeof body.sourceUrl === 'string'
+                ? body.sourceUrl.trim() || null
+                : null;
 
         if (!googlePlaceId || !clinicName) {
             return jsonResponse(
@@ -130,8 +140,11 @@ Deno.serve(async (request: Request) => {
             error: existingError,
         } = await supabaseAdmin
             .from('clinic_price_refresh_queue')
-            .select('id, status')
-            .eq('google_place_id', googlePlaceId)
+            .select('id, status, clinic_city')
+            .eq(
+                'google_place_id',
+                googlePlaceId,
+            )
             .in('status', [
                 'pending',
                 'processing',
@@ -154,6 +167,22 @@ Deno.serve(async (request: Request) => {
         }
 
         if (existingJob) {
+            // If an old queued row exists without city,
+            // fill it in now.
+            if (
+                clinicCity &&
+                !existingJob.clinic_city
+            ) {
+                await supabaseAdmin
+                    .from(
+                        'clinic_price_refresh_queue',
+                    )
+                    .update({
+                        clinic_city: clinicCity,
+                    })
+                    .eq('id', existingJob.id);
+            }
+
             return jsonResponse({
                 queued: false,
                 cached: false,
@@ -168,10 +197,20 @@ Deno.serve(async (request: Request) => {
         } = await supabaseAdmin
             .from('clinic_price_refresh_queue')
             .insert({
-                google_place_id: googlePlaceId,
-                clinic_name: clinicName,
-                source_url: sourceUrl,
-                status: 'pending',
+                google_place_id:
+                    googlePlaceId,
+
+                clinic_name:
+                    clinicName,
+
+                clinic_city:
+                    clinicCity,
+
+                source_url:
+                    sourceUrl,
+
+                status:
+                    'pending',
             })
             .select()
             .single();

@@ -130,7 +130,7 @@ Deno.serve(async (request: Request) => {
             .order('requested_at', {
                 ascending: true,
             })
-            .limit(10);
+            .limit(3);
 
         if (jobsError) {
             console.error(

@@ -100,11 +100,9 @@ export default function ClinicFinder({
                         {
                             body: {
                                 googlePlaceId: clinic.id,
-
                                 clinicName: clinic.name,
-
-                                sourceUrl: clinic.priceListUrl ??
-                                    null,
+                                clinicCity: clinic.city,
+                                sourceUrl: clinic.priceListUrl ?? null,
                             },
                         },
                     );
