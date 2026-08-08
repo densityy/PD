@@ -54,13 +54,13 @@ Deno.serve(async (request: Request) => {
 
     const googlePlaceIds = Array.isArray(body.googlePlaceIds)
       ? body.googlePlaceIds
-        .filter(
-          (id): id is string =>
-            typeof id === 'string',
-        )
-        .map((id) => id.trim())
-        .filter(Boolean)
-        .slice(0, 20)
+          .filter(
+            (id): id is string =>
+              typeof id === 'string',
+          )
+          .map((id) => id.trim())
+          .filter(Boolean)
+          .slice(0, 20)
       : [];
 
     const treatmentCode =

@@ -1,5 +1,5 @@
 import '@supabase/functions-js/edge-runtime.d.ts';
-
+import { createClient } from 'npm:@supabase/supabase-js@2';
 interface ChatMessage {
   sender: 'pia' | 'user';
   text: string;
@@ -59,7 +59,11 @@ Målet ditt er at samtalen skal føles som en ekte samtale med en dyktig resepsj
 ikke som et skjema eller en rigid spørsmålsliste.
 
 Samtalestil:
-- Svar naturlig på norsk.
+- Svar på samme språk som pasienten bruker.
+- Hvis pasienten skriver på norsk, svar på norsk.
+- Hvis pasienten skriver på engelsk, svar på engelsk.
+- Hvis pasienten bytter språk, følg språket i den nyeste meldingen.
+- Hvis språket er uklart, bruk norsk som standardspråk.
 - Anerkjenn det pasienten sier.
 - Ikke gjenta spørsmål som allerede er besvart.
 - Bruk informasjon fra hele samtalen.
@@ -262,11 +266,15 @@ Deno.serve(async (request: Request) => {
 
   try {
     const openAiApiKey = Deno.env.get('OPENAI_API_KEY');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceRoleKey = Deno.env.get(
+      'SUPABASE_SERVICE_ROLE_KEY',
+    );
 
-    if (!openAiApiKey) {
+    if (!openAiApiKey || !supabaseUrl || !serviceRoleKey) {
       return jsonResponse(
         {
-          error: 'OPENAI_API_KEY is not configured.',
+          error: 'Server credentials are not configured.',
         },
         500,
       );
@@ -284,13 +292,80 @@ Deno.serve(async (request: Request) => {
       );
     }
 
+    // Prevent excessively large messages from reaching OpenAI.
+    if (message.length > 2000) {
+      return jsonResponse(
+        {
+          error: 'Message is too long.',
+        },
+        400,
+      );
+    }
+
+    // Only send a limited amount of conversation history to OpenAI.
     const history = (body.history ?? [])
-      .slice(-16)
+      .slice(-10)
       .map((item) => ({
         role: item.sender === 'user' ? 'user' : 'assistant',
-        content: item.text,
+        content: item.text.slice(0, 2000),
       }));
 
+    // Identify caller for rate limiting.
+    const forwardedFor =
+      request.headers.get('x-forwarded-for');
+
+    const clientIp =
+      forwardedFor?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      'unknown';
+
+    const supabaseAdmin = createClient(
+      supabaseUrl,
+      serviceRoleKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      },
+    );
+
+    const {
+      data: rateLimitResult,
+      error: rateLimitError,
+    } = await supabaseAdmin.rpc(
+      'check_pia_rate_limit',
+      {
+        p_identifier: clientIp,
+      },
+    );
+
+    if (rateLimitError) {
+      console.error(
+        'Pia rate limit check failed:',
+        rateLimitError,
+      );
+
+      return jsonResponse(
+        {
+          error: 'Could not verify request limit.',
+        },
+        500,
+      );
+    }
+
+    const rateLimit = rateLimitResult?.[0];
+
+    if (!rateLimit?.allowed) {
+      return jsonResponse(
+        {
+          error: 'Too many requests. Please try again later.',
+        },
+        429,
+      );
+    }
+
+    // OpenAI is only called after the request passes the rate limit.
     const openAiResponse = await fetch(
       'https://api.openai.com/v1/responses',
       {
@@ -320,7 +395,7 @@ Deno.serve(async (request: Request) => {
           reasoning: {
             effort: 'low',
           },
-          max_output_tokens: 4000,
+          max_output_tokens: 700,
         }),
       },
     );
@@ -355,7 +430,11 @@ Deno.serve(async (request: Request) => {
     try {
       parsed = JSON.parse(outputText) as PiaStructuredResponse;
     } catch (error) {
-      console.error('Could not parse Pia response:', outputText, error);
+      console.error(
+        'Could not parse Pia response:',
+        outputText,
+        error,
+      );
 
       return jsonResponse(
         {
