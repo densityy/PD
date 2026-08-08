@@ -31,6 +31,7 @@ export interface Clinic {
     isPartner?: boolean;
     isVerified?: boolean;
     prices?: ClinicPrice[];
+    priceListUrl?: string | null;
 }
 
 export interface ReferralDetails {

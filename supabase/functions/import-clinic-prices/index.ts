@@ -309,11 +309,39 @@ Rules:
 - Never invent, estimate, infer, or guess a price.
 - Ignore prices that cannot confidently be mapped to an allowed treatment.
 - All monetary values are NOK unless the page clearly states otherwise.
-- Do not include consultation fees inside another treatment unless the clinic explicitly presents them as one combined price.
-- If several variants of the same treatment are listed, use the lowest supported value as priceFrom and the highest supported value as priceTo.
-- If the page only states "fra" / "from", use that value as priceFrom and set priceTo to null.
-- If one exact price is published, set priceFrom and priceTo to the same value.
-- sourceText must be a very short excerpt supporting the extracted value, maximum 160 characters.
+
+Normalization:
+- Return at most ONE candidate per treatmentCode.
+- If multiple valid variants exist for the same treatment, combine them:
+  - priceFrom = lowest valid standalone price
+  - priceTo = highest valid standalone price
+- Example: root canal 1 canal 3305, 2 canals 4630, 3-4 canals 5950
+  becomes root_canal with priceFrom 3305 and priceTo 5950.
+
+Important exclusions:
+- Do NOT merge implant crowns into normal crowns.
+- "Implantatkrone" belongs with implant treatment context, not ordinary crown pricing.
+- Do NOT use bundled package prices as standalone treatment prices unless the page clearly provides the standalone treatment price too.
+- Example: "undersøkelse + rens" must not become a standalone dental_cleaning price.
+- Do NOT combine premium packages with ordinary examination prices.
+- Do NOT combine whitening packages with standalone whitening unless the package is explicitly the only published whitening price.
+- Temporary fillings must not lower the normal filling range.
+- Specialist prices may be included in a range only when they clearly describe the same treatment category.
+
+For ranges:
+- priceFrom = lowest clearly supported standalone price.
+- priceTo = highest clearly supported standalone price.
+
+For "fra" / "from" prices:
+- set priceFrom to that value.
+- set priceTo to null unless another clearly comparable standalone price establishes a range.
+
+For one exact price:
+- set priceFrom and priceTo to the same value.
+
+sourceText:
+- Include a very short excerpt supporting the final normalized price.
+- Maximum 160 characters.
 
 Allowed treatment codes:
 - examination
@@ -326,7 +354,7 @@ Allowed treatment codes:
 - tooth_extraction
 - wisdom_tooth
 - implant
-          `.trim(),
+`.trim(),
 
                     input: pageText,
 

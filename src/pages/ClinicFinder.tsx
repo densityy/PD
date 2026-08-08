@@ -30,12 +30,22 @@ export default function ClinicFinder({
     >(null);
 
     const [locationError, setLocationError] = useState("");
+
     const [clinics, setClinics] = useState<Clinic[]>([]);
-    const [loadingClinics, setLoadingClinics] = useState(false);
+
+    const [
+        loadingClinics,
+        setLoadingClinics,
+    ] = useState(false);
+
     const [clinicError, setClinicError] = useState("");
+
     const [hasSearched, setHasSearched] = useState(false);
 
-    const [selectedTreatment, setSelectedTreatment] = useState("root_canal");
+    const [
+        selectedTreatment,
+        setSelectedTreatment,
+    ] = useState("root_canal");
 
     function useCurrentLocation() {
         setLocationError("");
@@ -72,6 +82,56 @@ export default function ClinicFinder({
                 maximumAge: 60000,
             },
         );
+    }
+
+    async function queueMissingPrices(
+        clinicsToCheck: Clinic[],
+    ) {
+        console.log(
+            "Checking clinic price refresh queue...",
+            clinicsToCheck.length,
+        );
+
+        const jobs = clinicsToCheck.map(
+            async (clinic) => {
+                try {
+                    const { data, error } = await supabase.functions.invoke(
+                        "queue-clinic-price-refresh",
+                        {
+                            body: {
+                                googlePlaceId: clinic.id,
+
+                                clinicName: clinic.name,
+
+                                sourceUrl: clinic.priceListUrl ??
+                                    null,
+                            },
+                        },
+                    );
+
+                    if (error) {
+                        console.error(
+                            `Could not queue prices for ${clinic.name}:`,
+                            error,
+                        );
+
+                        return;
+                    }
+
+                    console.log(
+                        `Price refresh check: ${clinic.name}`,
+                        data,
+                    );
+                } catch (error) {
+                    console.error(
+                        `Price queue failed for ${clinic.name}:`,
+                        error,
+                    );
+                }
+            },
+        );
+
+        await Promise.allSettled(jobs);
     }
 
     async function searchClinics() {
@@ -135,7 +195,12 @@ export default function ClinicFinder({
                 resultsWithPrices,
             );
 
+            // Show clinics immediately.
             setClinics(resultsWithPrices);
+
+            // Check stale/missing prices in the background.
+            // This does NOT make the patient wait.
+            void queueMissingPrices(results);
         } catch (error) {
             console.error(
                 "Clinic search failed:",
@@ -220,13 +285,22 @@ export default function ClinicFinder({
                                     <input
                                         type="text"
                                         value={location}
-                                        onChange={(event) => {
+                                        onChange={(
+                                            event,
+                                        ) => {
                                             setLocation(
-                                                event.target.value,
+                                                event
+                                                    .target
+                                                    .value,
                                             );
-                                            setCoordinates(null);
+
+                                            setCoordinates(
+                                                null,
+                                            );
                                         }}
-                                        onKeyDown={(event) => {
+                                        onKeyDown={(
+                                            event,
+                                        ) => {
                                             if (
                                                 event.key ===
                                                     "Enter"
@@ -244,7 +318,9 @@ export default function ClinicFinder({
                                     onClick={useCurrentLocation}
                                     className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl border border-[#dce7ed] px-5 text-sm font-bold text-[#536e83] transition hover:bg-[#f5f9fb]"
                                 >
-                                    <Navigation size={17} />
+                                    <Navigation
+                                        size={17}
+                                    />
                                     Bruk min posisjon
                                 </button>
 
@@ -254,7 +330,9 @@ export default function ClinicFinder({
                                     disabled={loadingClinics}
                                     className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl bg-[#14c8d4] px-7 text-sm font-black text-white shadow-lg shadow-[#14c8d4]/20 transition hover:bg-[#0fb3be] disabled:cursor-not-allowed disabled:opacity-60"
                                 >
-                                    <Search size={17} />
+                                    <Search
+                                        size={17}
+                                    />
 
                                     {loadingClinics ? "Søker..." : "Søk"}
                                 </button>
@@ -271,16 +349,27 @@ export default function ClinicFinder({
                                 <select
                                     id="treatment"
                                     value={selectedTreatment}
-                                    onChange={async (event) => {
-                                        const newTreatment = event.target.value;
+                                    onChange={async (
+                                        event,
+                                    ) => {
+                                        const newTreatment = event
+                                            .target
+                                            .value;
 
-                                        setSelectedTreatment(newTreatment);
+                                        setSelectedTreatment(
+                                            newTreatment,
+                                        );
 
-                                        if (clinics.length === 0) {
+                                        if (
+                                            clinics.length ===
+                                                0
+                                        ) {
                                             return;
                                         }
 
-                                        setLoadingClinics(true);
+                                        setLoadingClinics(
+                                            true,
+                                        );
 
                                         try {
                                             const clinicsWithNewPrices =
@@ -289,14 +378,18 @@ export default function ClinicFinder({
                                                     newTreatment,
                                                 );
 
-                                            setClinics(clinicsWithNewPrices);
+                                            setClinics(
+                                                clinicsWithNewPrices,
+                                            );
                                         } catch (error) {
                                             console.error(
                                                 "Treatment price update failed:",
                                                 error,
                                             );
                                         } finally {
-                                            setLoadingClinics(false);
+                                            setLoadingClinics(
+                                                false,
+                                            );
                                         }
                                     }}
                                     className="h-12 w-full rounded-2xl border border-[#dce7ed] bg-white px-4 text-sm font-semibold text-[#10233f] outline-none focus:ring-2 focus:ring-[#14b8c4]/20"
@@ -316,6 +409,7 @@ export default function ClinicFinder({
                                     <option value="cosmetic">
                                         Tannbleking
                                     </option>
+
                                     <option value="crown">
                                         Tannkrone
                                     </option>
@@ -337,9 +431,12 @@ export default function ClinicFinder({
 
                         {coordinates && (
                             <p className="mt-3 text-xs text-[#7d91a3]">
-                                Posisjon funnet:{" "}
-                                {coordinates.latitude.toFixed(4)},{" "}
-                                {coordinates.longitude.toFixed(4)}
+                                Posisjon funnet: {coordinates.latitude.toFixed(
+                                    4,
+                                )}
+                                , {coordinates.longitude.toFixed(
+                                    4,
+                                )}
                             </p>
                         )}
                     </div>
@@ -365,132 +462,143 @@ export default function ClinicFinder({
 
                     {clinics.length > 0 && (
                         <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-                            {clinics.map((clinic) => (
-                                <article
-                                    key={clinic.id}
-                                    className="rounded-[24px] border border-[#dfe8ee] bg-white p-6 shadow-sm"
-                                >
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div>
-                                            <h2 className="text-lg font-black text-[#10233f]">
-                                                {clinic.name}
-                                            </h2>
+                            {clinics.map(
+                                (clinic) => (
+                                    <article
+                                        key={clinic.id}
+                                        className="rounded-[24px] border border-[#dfe8ee] bg-white p-6 shadow-sm"
+                                    >
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div>
+                                                <h2 className="text-lg font-black text-[#10233f]">
+                                                    {clinic.name}
+                                                </h2>
 
-                                            <div className="mt-2 flex items-start gap-2 text-sm text-[#72889a]">
-                                                <MapPin
-                                                    size={16}
-                                                    className="mt-0.5 shrink-0 text-[#14b8c4]"
-                                                />
+                                                <div className="mt-2 flex items-start gap-2 text-sm text-[#72889a]">
+                                                    <MapPin
+                                                        size={16}
+                                                        className="mt-0.5 shrink-0 text-[#14b8c4]"
+                                                    />
 
-                                                <span>
-                                                    {clinic.address}
-                                                </span>
+                                                    <span>
+                                                        {clinic.address}
+                                                    </span>
+                                                </div>
                                             </div>
+
+                                            {clinic.isVerified && (
+                                                <div
+                                                    title="Verifisert"
+                                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eaf9fb]"
+                                                >
+                                                    <ShieldCheck
+                                                        size={18}
+                                                        className="text-[#14b8c4]"
+                                                    />
+                                                </div>
+                                            )}
                                         </div>
 
-                                        {clinic.isVerified && (
-                                            <div
-                                                title="Verifisert"
-                                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eaf9fb]"
-                                            >
-                                                <ShieldCheck
-                                                    size={18}
-                                                    className="text-[#14b8c4]"
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
+                                        {clinic.rating !==
+                                                null &&
+                                            clinic.rating !==
+                                                undefined &&
+                                            (
+                                                <div className="mt-4 flex items-center gap-2 text-sm">
+                                                    <Star
+                                                        size={16}
+                                                        className="fill-current text-amber-400"
+                                                    />
 
-                                    {clinic.rating !== null && (
-                                        <div className="mt-4 flex items-center gap-2 text-sm">
-                                            <Star
-                                                size={16}
-                                                className="fill-current text-amber-400"
-                                            />
+                                                    <span className="font-black text-[#10233f]">
+                                                        {clinic.rating}
+                                                    </span>
 
-                                            <span className="font-black text-[#10233f]">
-                                                {clinic.rating}
-                                            </span>
+                                                    <span className="text-[#8ba0af]">
+                                                        (
+                                                        {clinic.reviewCount ??
+                                                            0}
+                                                        )
+                                                    </span>
+                                                </div>
+                                            )}
 
-                                            <span className="text-[#8ba0af]">
-                                                (
-                                                {clinic.reviewCount}
-                                                )
-                                            </span>
-                                        </div>
-                                    )}
+                                        {Array.isArray(
+                                            clinic.prices,
+                                        ) &&
+                                            clinic
+                                                    .prices
+                                                    .length >
+                                                0 &&
+                                            (
+                                                <div className="mt-5 rounded-2xl bg-[#f4f8fb] p-4">
+                                                    {clinic.prices.map(
+                                                        (
+                                                            price,
+                                                            index,
+                                                        ) => (
+                                                            <div
+                                                                key={`${clinic.id}-${price.treatment}-${index}`}
+                                                            >
+                                                                <p className="text-xs font-bold uppercase tracking-wide text-[#7b91a3]">
+                                                                    {price
+                                                                        .treatment}
+                                                                </p>
 
-                                    {clinic.prices &&
-                                        clinic.prices.length >
-                                            0 &&
-                                        (
-                                            <div className="mt-5 rounded-2xl bg-[#f4f8fb] p-4">
-                                                {clinic.prices.map(
-                                                    (
-                                                        price,
-                                                        index,
-                                                    ) => (
-                                                        <div
-                                                            key={`${clinic.id}-${price.treatment}-${index}`}
-                                                        >
-                                                            <p className="text-xs font-bold uppercase tracking-wide text-[#7b91a3]">
-                                                                {price
-                                                                    .treatment}
-                                                            </p>
-
-                                                            <p className="mt-1 text-lg font-black text-[#10233f]">
-                                                                {price
-                                                                                .priceFrom !==
-                                                                            undefined &&
-                                                                        price
-                                                                                .priceTo !==
-                                                                            undefined &&
-                                                                        price
-                                                                                .priceFrom !==
+                                                                <p className="mt-1 text-lg font-black text-[#10233f]">
+                                                                    {price
+                                                                                    .priceFrom !==
+                                                                                undefined &&
                                                                             price
-                                                                                .priceTo
-                                                                    ? `${
-                                                                        price
-                                                                            .priceFrom
-                                                                            .toLocaleString(
-                                                                                "nb-NO",
-                                                                            )
-                                                                    }–${
-                                                                        price
-                                                                            .priceTo
-                                                                            .toLocaleString(
-                                                                                "nb-NO",
-                                                                            )
-                                                                    } kr`
-                                                                    : `${
-                                                                        (
+                                                                                    .priceTo !==
+                                                                                undefined &&
                                                                             price
-                                                                                .priceFrom ??
+                                                                                    .priceFrom !==
                                                                                 price
                                                                                     .priceTo
-                                                                        )?.toLocaleString(
-                                                                            "nb-NO",
-                                                                        )
-                                                                    } kr`}
-                                                            </p>
-                                                        </div>
-                                                    ),
-                                                )}
-                                            </div>
-                                        )}
+                                                                        ? `${
+                                                                            price
+                                                                                .priceFrom
+                                                                                .toLocaleString(
+                                                                                    "nb-NO",
+                                                                                )
+                                                                        }–${
+                                                                            price
+                                                                                .priceTo
+                                                                                .toLocaleString(
+                                                                                    "nb-NO",
+                                                                                )
+                                                                        } kr`
+                                                                        : `${
+                                                                            (
+                                                                                price
+                                                                                    .priceFrom ??
+                                                                                    price
+                                                                                        .priceTo
+                                                                            )?.toLocaleString(
+                                                                                "nb-NO",
+                                                                            )
+                                                                        } kr`}
+                                                                </p>
+                                                            </div>
+                                                        ),
+                                                    )}
+                                                </div>
+                                            )}
 
-                                    {clinic.googleMapsUrl && (
-                                        <a
-                                            href={clinic.googleMapsUrl}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="mt-5 inline-flex w-full items-center justify-center rounded-2xl border border-[#dce7ed] px-4 py-3 text-sm font-black text-[#536e83] transition hover:bg-[#f5f9fb]"
-                                        >
-                                            Se i Google Maps
-                                        </a>
-                                    )}
-                                </article>
-                            ))}
+                                        {clinic.googleMapsUrl && (
+                                            <a
+                                                href={clinic.googleMapsUrl}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="mt-5 inline-flex w-full items-center justify-center rounded-2xl border border-[#dce7ed] px-4 py-3 text-sm font-black text-[#536e83] transition hover:bg-[#f5f9fb]"
+                                            >
+                                                Se i Google Maps
+                                            </a>
+                                        )}
+                                    </article>
+                                ),
+                            )}
                         </div>
                     )}
                 </section>
