@@ -1,5 +1,8 @@
 import { supabase } from '@/lib/supabase';
-import type { Clinic, ClinicPrice } from '@/types/pia';
+import type {
+    Clinic,
+    ClinicPrice,
+} from '@/types/pia';
 
 interface StoredClinicPrice {
     google_place_id: string;
@@ -21,95 +24,335 @@ interface PriceFunctionResponse {
         code: string;
         name: string;
     } | null;
+
     prices: StoredClinicPrice[];
 }
 
-const REASON_TO_TREATMENT: Record<string, string> = {
-    toothache: 'emergency_consultation',
-    checkup: 'examination',
-    emergency: 'emergency_consultation',
-    cosmetic: 'teeth_whitening',
-    broken_tooth: 'filling',
-    wisdom_tooth: 'wisdom_tooth',
-    root_canal: 'root_canal',
-    cleaning: 'dental_cleaning',
-    crown: 'crown',
+const REASON_TO_TREATMENT:
+    Record<string, string> = {
+    toothache:
+        'emergency_consultation',
+
+    checkup:
+        'examination',
+
+    examination:
+        'examination',
+
+    emergency:
+        'emergency_consultation',
+
+    emergency_consultation:
+        'emergency_consultation',
+
+    cosmetic:
+        'teeth_whitening',
+
+    teeth_whitening:
+        'teeth_whitening',
+
+    broken_tooth:
+        'filling',
+
+    filling:
+        'filling',
+
+    wisdom_tooth:
+        'wisdom_tooth',
+
+    root_canal:
+        'root_canal',
+
+    cleaning:
+        'dental_cleaning',
+
+    dental_cleaning:
+        'dental_cleaning',
+
+    crown:
+        'crown',
+
+    tooth_extraction:
+        'tooth_extraction',
+
+    implant:
+        'implant',
 };
 
-export function getTreatmentCode(reason?: string) {
+export function getTreatmentCode(
+    reason?: string,
+) {
     if (!reason) {
         return undefined;
     }
 
-    return REASON_TO_TREATMENT[reason];
+    /*
+     * Support both Pia reason names such as
+     * "checkup" and canonical treatment codes
+     * such as "root_canal".
+     */
+    return (
+        REASON_TO_TREATMENT[
+        reason.trim()
+        ] ?? reason.trim()
+    );
+}
+
+function normalizeId(
+    value?: string | null,
+) {
+    return (
+        value
+            ?.trim()
+            .toLowerCase() ??
+        ''
+    );
+}
+
+function normalizeName(
+    value?: string | null,
+) {
+    return (
+        value
+            ?.trim()
+            .toLowerCase()
+            .replace(/\s+/g, ' ') ??
+        ''
+    );
 }
 
 export async function addPricesToClinics(
     clinics: Clinic[],
     reason?: string,
 ): Promise<Clinic[]> {
-    const treatmentCode = getTreatmentCode(reason);
+    const treatmentCode =
+        getTreatmentCode(reason);
 
-    if (!treatmentCode || clinics.length === 0) {
+    if (
+        !treatmentCode ||
+        clinics.length === 0
+    ) {
         return clinics;
     }
 
-    const { data, error } =
+    const googlePlaceIds =
+        clinics
+            .map(
+                (clinic) =>
+                    clinic.id?.trim(),
+            )
+            .filter(
+                (
+                    id,
+                ): id is string =>
+                    Boolean(id),
+            );
+
+    const {
+        data,
+        error,
+    } =
         await supabase.functions.invoke<PriceFunctionResponse>(
             'get-clinic-prices',
             {
                 body: {
-                    googlePlaceIds: clinics.map((clinic) => clinic.id),
+                    googlePlaceIds,
                     treatmentCode,
                 },
             },
         );
 
     if (error) {
-        console.error('Clinic price lookup failed:', error);
+        console.error(
+            'Clinic price lookup failed:',
+            error,
+        );
 
-        // Clinic search should still work if price lookup fails.
+        /*
+         * Clinic Finder should still work
+         * even if price lookup fails.
+         */
         return clinics;
     }
 
-    console.log('PRICE LOOKUP:', {
-        treatmentCode,
-        data,
-    });
-
-    if (!data?.treatment || !Array.isArray(data.prices)) {
-        return clinics;
-    }
-
-    const treatment = data.treatment;
-
-    const pricesByClinicId = new Map<string, StoredClinicPrice>(
-        data.prices.map((price) => [
-            price.google_place_id,
-            price,
-        ]),
+    console.log(
+        'PRICE LOOKUP:',
+        {
+            treatmentCode,
+            requestedIds:
+                googlePlaceIds,
+            data,
+        },
     );
 
-    return clinics.map((clinic): Clinic => {
-        const storedPrice = pricesByClinicId.get(clinic.id);
+    if (
+        !data?.treatment ||
+        !Array.isArray(
+            data.prices,
+        )
+    ) {
+        return clinics;
+    }
 
-        if (!storedPrice) {
-            return clinic;
+    const treatment =
+        data.treatment;
+
+    /*
+     * Exact Google Place ID lookup.
+     */
+    const pricesByClinicId =
+        new Map<
+            string,
+            StoredClinicPrice
+        >();
+
+    /*
+     * Clinic-name fallback.
+     *
+     * We normally match using Google Place ID.
+     * The name fallback protects us against
+     * formatting/whitespace differences in
+     * existing imported records.
+     */
+    const pricesByClinicName =
+        new Map<
+            string,
+            StoredClinicPrice
+        >();
+
+    for (
+        const price of
+        data.prices
+    ) {
+        const normalizedId =
+            normalizeId(
+                price.google_place_id,
+            );
+
+        if (normalizedId) {
+            pricesByClinicId.set(
+                normalizedId,
+                price,
+            );
         }
 
-        const clinicPrice: ClinicPrice = {
-            treatment: treatment.name,
-            priceFrom: storedPrice.price_from ?? undefined,
-            priceTo: storedPrice.price_to ?? undefined,
-            currency: 'NOK',
-            sourceType: storedPrice.source_type,
-            sourceUrl: storedPrice.source_url ?? undefined,
-            verifiedAt: storedPrice.verified_at ?? undefined,
-        };
+        const normalizedName =
+            normalizeName(
+                price.clinic_name,
+            );
 
-        return {
-            ...clinic,
-            prices: [clinicPrice],
-        };
-    });
+        if (normalizedName) {
+            pricesByClinicName.set(
+                normalizedName,
+                price,
+            );
+        }
+    }
+
+    const clinicsWithPrices =
+        clinics.map(
+            (
+                clinic,
+            ): Clinic => {
+                const clinicId =
+                    normalizeId(
+                        clinic.id,
+                    );
+
+                const clinicName =
+                    normalizeName(
+                        clinic.name,
+                    );
+
+                const storedPrice =
+                    pricesByClinicId.get(
+                        clinicId,
+                    ) ??
+                    pricesByClinicName.get(
+                        clinicName,
+                    );
+
+                if (!storedPrice) {
+                    return {
+                        ...clinic,
+                        prices: [],
+                    };
+                }
+
+                const clinicPrice:
+                    ClinicPrice = {
+                    treatment:
+                        treatment.name,
+
+                    priceFrom:
+                        storedPrice.price_from ??
+                        undefined,
+
+                    priceTo:
+                        storedPrice.price_to ??
+                        undefined,
+
+                    currency: 'NOK',
+
+                    sourceType:
+                        storedPrice.source_type,
+
+                    sourceUrl:
+                        storedPrice.source_url ??
+                        undefined,
+
+                    verifiedAt:
+                        storedPrice.verified_at ??
+                        undefined,
+                };
+
+                console.log(
+                    'PRICE MATCH:',
+                    {
+                        clinic:
+                            clinic.name,
+
+                        clinicId:
+                            clinic.id,
+
+                        storedClinic:
+                            storedPrice.clinic_name,
+
+                        storedId:
+                            storedPrice.google_place_id,
+
+                        priceFrom:
+                            clinicPrice.priceFrom,
+
+                        priceTo:
+                            clinicPrice.priceTo,
+                    },
+                );
+
+                return {
+                    ...clinic,
+                    prices: [
+                        clinicPrice,
+                    ],
+                };
+            },
+        );
+
+    console.log(
+        'PRICE MATCH RESULT:',
+        clinicsWithPrices.map(
+            (clinic) => ({
+                clinic:
+                    clinic.name,
+
+                id:
+                    clinic.id,
+
+                prices:
+                    clinic.prices,
+            }),
+        ),
+    );
+
+    return clinicsWithPrices;
 }

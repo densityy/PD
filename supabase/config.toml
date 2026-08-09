@@ -456,3 +456,5 @@ entrypoint = "./functions/get-clinic-prices/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/get-clinic-prices/*.html" ]
+[functions.cleanup-clinic-price-imports]
+verify_jwt = false

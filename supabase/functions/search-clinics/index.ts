@@ -9,18 +9,30 @@ interface ClinicSearchRequest {
 
 interface GooglePlace {
   id?: string;
+
   displayName?: {
     text?: string;
     languageCode?: string;
   };
+
   formattedAddress?: string;
+
   location?: {
     latitude?: number;
     longitude?: number;
   };
+
   rating?: number;
   userRatingCount?: number;
+
   googleMapsUri?: string;
+
+  websiteUri?: string;
+
+  nationalPhoneNumber?: string;
+
+  internationalPhoneNumber?: string;
+
   businessStatus?: string;
 }
 
@@ -309,6 +321,9 @@ Deno.serve(async (request: Request) => {
             'places.rating',
             'places.userRatingCount',
             'places.googleMapsUri',
+            'places.websiteUri',
+            'places.nationalPhoneNumber',
+            'places.internationalPhoneNumber',
             'places.businessStatus',
           ].join(','),
         },
@@ -451,6 +466,12 @@ Deno.serve(async (request: Request) => {
 
           website:
             verifiedClinic?.website ??
+            place.websiteUri ??
+            null,
+
+          phone:
+            place.nationalPhoneNumber ??
+            place.internationalPhoneNumber ??
             null,
 
           priceListUrl:
