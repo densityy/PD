@@ -1,813 +1,682 @@
-import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import "jsr:@supabase/functions-js@2/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers':
-        'authorization, x-client-info, apikey, content-type, x-admin-key',
-    'Access-Control-Allow-Methods':
-        'POST, OPTIONS',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-admin-key",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-function jsonResponse(
-    body: unknown,
-    status = 200,
-) {
-    return new Response(
-        JSON.stringify(body),
-        {
-            status,
-            headers: {
-                ...corsHeaders,
-                'Content-Type':
-                    'application/json',
-            },
-        },
-    );
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+    },
+  });
 }
 
 interface QueueJob {
-    id: string;
-    google_place_id: string;
-    clinic_name: string;
-    source_url: string | null;
-    treatment_code: string | null;
-    status: string;
+  id: string;
+  google_place_id: string;
+  clinic_name: string;
+  source_url: string | null;
+  treatment_code: string | null;
+  status: string;
 }
 
 interface DiscoveryResult {
-    discovered?: boolean;
-    sourceUrl?: string;
-    reason?: string;
-    error?: string;
+  discovered?: boolean;
+  sourceUrl?: string;
+  reason?: string;
+  error?: string;
 }
 
 interface PriceCandidate {
-    treatmentCode: string;
-    treatmentName: string;
-    priceFrom: number | null;
-    priceTo: number | null;
-    sourceText: string;
+  treatmentCode: string;
+  treatmentName: string;
+  priceFrom: number | null;
+  priceTo: number | null;
+  sourceText: string;
 }
 
 interface ImportResult {
-    cached?: boolean;
-    imported?: boolean;
-    importId?: string;
-    candidateCount?: number;
-    candidates?: PriceCandidate[];
-    reason?: string;
-    error?: string;
+  cached?: boolean;
+  imported?: boolean;
+  importId?: string;
+  candidateCount?: number;
+  candidates?: PriceCandidate[];
+  reason?: string;
+  error?: string;
 }
 
 interface ApproveResult {
-    publishedCount?: number;
-    clinicName?: string;
-    error?: string;
+  publishedCount?: number;
+  clinicName?: string;
+  error?: string;
 }
 
-const ALLOWED_TREATMENT_CODES =
-    new Set([
-        'examination',
-        'emergency_consultation',
-        'root_canal',
-        'crown',
-        'teeth_whitening',
-        'filling',
-        'dental_cleaning',
-        'tooth_extraction',
-        'wisdom_tooth',
-        'implant',
-    ]);
+const ALLOWED_TREATMENT_CODES = new Set([
+  "examination",
+  "emergency_consultation",
+  "root_canal",
+  "crown",
+  "teeth_whitening",
+  "filling",
+  "dental_cleaning",
+  "tooth_extraction",
+  "wisdom_tooth",
+  "implant",
+]);
 
-function normalizeDigits(
-    value: string,
-) {
-    return value.replace(
-        /[^0-9]/g,
-        '',
-    );
+function normalizeDigits(value: string) {
+  return value.replace(/[^0-9]/g, "");
 }
 
-function sourceContainsPrice(
-    sourceText: string,
-    price: number,
-) {
-    return normalizeDigits(
-        sourceText,
-    ).includes(
-        String(
-            Math.round(price),
-        ),
-    );
+function sourceContainsPrice(sourceText: string, price: number) {
+  return normalizeDigits(sourceText).includes(String(Math.round(price)));
 }
 
-function isCandidateSafe(
-    candidate: PriceCandidate,
-) {
-    const reasons: string[] =
-        [];
+function isCandidateSafe(candidate: PriceCandidate) {
+  const reasons: string[] = [];
 
-    const sourceText =
-        candidate.sourceText?.trim() ??
-        '';
+  const sourceText = candidate.sourceText?.trim() ?? "";
 
-    const sourceLower =
-        sourceText.toLowerCase();
+  const sourceLower = sourceText.toLowerCase();
 
-    if (
-        !ALLOWED_TREATMENT_CODES.has(
-            candidate.treatmentCode,
-        )
-    ) {
-        reasons.push(
-            'Ukjent behandlingskode',
-        );
+  if (!ALLOWED_TREATMENT_CODES.has(candidate.treatmentCode)) {
+    reasons.push("Ukjent behandlingskode");
+  }
+
+  if (!sourceText) {
+    reasons.push("Mangler kildetekst");
+  }
+
+  if (candidate.priceFrom === null && candidate.priceTo === null) {
+    reasons.push("Mangler pris");
+  }
+
+  for (const [label, price] of [
+    ["fra-pris", candidate.priceFrom],
+    ["til-pris", candidate.priceTo],
+  ] as const) {
+    if (price === null) {
+      continue;
     }
 
-    if (!sourceText) {
-        reasons.push(
-            'Mangler kildetekst',
-        );
+    if (!Number.isFinite(price) || price <= 0 || !Number.isInteger(price)) {
+      reasons.push(`${label} er ugyldig`);
+
+      continue;
     }
 
-    if (
-        candidate.priceFrom ===
-        null &&
-        candidate.priceTo === null
-    ) {
-        reasons.push(
-            'Mangler pris',
-        );
+    if (!sourceContainsPrice(sourceText, price)) {
+      reasons.push(`${label} finnes ikke tydelig i kildeteksten`);
     }
+  }
 
-    for (
-        const [label, price] of [
-            [
-                'fra-pris',
-                candidate.priceFrom,
-            ],
-            [
-                'til-pris',
-                candidate.priceTo,
-            ],
-        ] as const
-    ) {
-        if (price === null) {
-            continue;
-        }
+  if (
+    candidate.priceFrom !== null &&
+    candidate.priceTo !== null &&
+    candidate.priceTo < candidate.priceFrom
+  ) {
+    reasons.push("Til-pris er lavere enn fra-pris");
+  }
 
-        if (
-            !Number.isFinite(price) ||
-            price <= 0 ||
-            !Number.isInteger(price)
-        ) {
-            reasons.push(
-                `${label} er ugyldig`,
-            );
+  if (
+    candidate.treatmentCode === "crown" &&
+    /implantat\s*krone|implantatkrone/.test(sourceLower)
+  ) {
+    reasons.push("Kan være implantatkrone");
+  }
 
-            continue;
-        }
+  if (
+    candidate.treatmentCode === "filling" &&
+    /midlertidig|tempor[aæ]r/.test(sourceLower)
+  ) {
+    reasons.push("Kan være midlertidig fylling");
+  }
 
-        if (
-            !sourceContainsPrice(
-                sourceText,
-                price,
-            )
-        ) {
-            reasons.push(
-                `${label} finnes ikke tydelig i kildeteksten`,
-            );
-        }
+  /*
+   * Packages are not automatically unsafe.
+   *
+   * Examination prices often legitimately
+   * include X-rays, cleaning or other
+   * standard components.
+   */
+  if (
+    ["examination", "dental_cleaning", "teeth_whitening"].includes(
+      candidate.treatmentCode,
+    )
+  ) {
+    const looksLikeAmbiguousPackage =
+      /\b(pakkepris|behandlingspakke|package deal|kampanjepakke|totalpakke)\b/i.test(
+        sourceLower,
+      );
+
+    if (looksLikeAmbiguousPackage) {
+      reasons.push("Kan være uklar pakkepris");
     }
+  }
 
-    if (
-        candidate.priceFrom !==
-        null &&
-        candidate.priceTo !==
-        null &&
-        candidate.priceTo <
-        candidate.priceFrom
-    ) {
-        reasons.push(
-            'Til-pris er lavere enn fra-pris',
-        );
-    }
-
-    if (
-        candidate.treatmentCode ===
-        'crown' &&
-        /implantat\s*krone|implantatkrone/.test(
-            sourceLower,
-        )
-    ) {
-        reasons.push(
-            'Kan være implantatkrone',
-        );
-    }
-
-    if (
-        candidate.treatmentCode ===
-        'filling' &&
-        /midlertidig|tempor[aæ]r/.test(
-            sourceLower,
-        )
-    ) {
-        reasons.push(
-            'Kan være midlertidig fylling',
-        );
-    }
-
-    if (
-        [
-            'examination',
-            'dental_cleaning',
-            'teeth_whitening',
-        ].includes(
-            candidate.treatmentCode,
-        ) &&
-        /pakke|package|inkl\.?|inkludert|\+/.test(
-            sourceLower,
-        )
-    ) {
-        reasons.push(
-            'Kan være pakkepris',
-        );
-    }
-
-    return {
-        safe:
-            reasons.length === 0,
-        reasons,
-    };
+  return {
+    safe: reasons.length === 0,
+    reasons,
+  };
 }
 
-function internalHeaders(
-    serviceRoleKey: string,
-    adminKey: string,
+function internalHeaders(serviceRoleKey: string, adminKey: string) {
+  return {
+    Authorization: `Bearer ${serviceRoleKey}`,
+
+    apikey: serviceRoleKey,
+
+    "Content-Type": "application/json",
+
+    "x-admin-key": adminKey,
+  };
+}
+
+async function discoverPriceSource(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  adminKey: string,
+  jobId: string,
 ) {
-    return {
-        Authorization:
-            `Bearer ${serviceRoleKey}`,
+  const response = await fetch(
+    `${supabaseUrl}/functions/v1/discover-clinic-price-source`,
+    {
+      method: "POST",
 
-        apikey:
-            serviceRoleKey,
+      headers: internalHeaders(serviceRoleKey, adminKey),
 
-        'Content-Type':
-            'application/json',
+      body: JSON.stringify({
+        jobId,
+      }),
+    },
+  );
 
-        'x-admin-key':
-            adminKey,
-    };
+  const result = (await response.json()) as DiscoveryResult;
+
+  return {
+    response,
+    result,
+  };
+}
+
+async function importFromSource(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  adminKey: string,
+  job: QueueJob,
+  sourceUrl: string,
+) {
+  const response = await fetch(
+    `${supabaseUrl}/functions/v1/import-clinic-prices`,
+    {
+      method: "POST",
+
+      headers: internalHeaders(serviceRoleKey, adminKey),
+
+      body: JSON.stringify({
+        googlePlaceId: job.google_place_id,
+
+        clinicName: job.clinic_name,
+
+        sourceUrl,
+
+        treatmentCode: job.treatment_code,
+
+        forceRefresh: true,
+      }),
+    },
+  );
+
+  const result = (await response.json()) as ImportResult;
+
+  if (!response.ok) {
+    throw new Error(result.error ?? "Price extraction failed.");
+  }
+
+  return result;
 }
 
 Deno.serve(async (request: Request) => {
-    if (request.method === 'OPTIONS') {
-        return new Response('ok', {
-            headers: corsHeaders,
-        });
+  if (request.method === "OPTIONS") {
+    return new Response("ok", {
+      headers: corsHeaders,
+    });
+  }
+
+  if (request.method !== "POST") {
+    return jsonResponse(
+      {
+        error: "Method not allowed.",
+      },
+      405,
+    );
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+    const adminKey = Deno.env.get("PRICE_IMPORT_ADMIN_KEY");
+
+    if (!supabaseUrl || !serviceRoleKey || !adminKey) {
+      return jsonResponse(
+        {
+          error: "Server credentials missing.",
+        },
+        500,
+      );
     }
 
-    if (request.method !== 'POST') {
-        return jsonResponse(
-            {
-                error: 'Method not allowed.',
-            },
-            405,
+    if (request.headers.get("x-admin-key") !== adminKey) {
+      return jsonResponse(
+        {
+          error: "Unauthorized.",
+        },
+        401,
+      );
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        persistSession: false,
+
+        autoRefreshToken: false,
+      },
+    });
+
+    const { data: jobs, error: jobsError } = await supabaseAdmin
+      .from("clinic_price_refresh_queue")
+      .select(
+        `
+                        id,
+                        google_place_id,
+                        clinic_name,
+                        source_url,
+                        treatment_code,
+                        status
+                    `,
+      )
+      .eq("status", "pending")
+      .order("requested_at", {
+        ascending: true,
+      })
+      .limit(10);
+
+    if (jobsError) {
+      throw jobsError;
+    }
+
+    if (!jobs || jobs.length === 0) {
+      return jsonResponse({
+        processedCount: 0,
+
+        results: [],
+      });
+    }
+
+    const results: Record<string, unknown>[] = [];
+
+    for (const job of jobs as QueueJob[]) {
+      let sourceUrl: string | null = job.source_url;
+
+      try {
+        /*
+         * Atomically claim job.
+         */
+        const { data: claimed, error: claimError } = await supabaseAdmin
+          .from("clinic_price_refresh_queue")
+          .update({
+            status: "processing",
+
+            started_at: new Date().toISOString(),
+
+            error_message: null,
+          })
+          .eq("id", job.id)
+          .eq("status", "pending")
+          .select("id");
+
+        if (claimError) {
+          throw claimError;
+        }
+
+        if (!claimed || claimed.length === 0) {
+          continue;
+        }
+
+        /*
+         * No source yet:
+         * discover one.
+         */
+        if (!sourceUrl) {
+          const { response, result } = await discoverPriceSource(
+            supabaseUrl,
+            serviceRoleKey,
+            adminKey,
+            job.id,
+          );
+
+          if (!response.ok || !result.discovered || !result.sourceUrl) {
+            throw new Error(
+              result.error ?? result.reason ?? "No official price page found.",
+            );
+          }
+
+          sourceUrl = result.sourceUrl;
+        }
+
+        /*
+         * TypeScript now knows that
+         * sourceUrl is a real string.
+         */
+        if (!sourceUrl) {
+          throw new Error("Price source URL is missing.");
+        }
+
+        /*
+         * Attempt 1:
+         * current price source.
+         */
+        let importResult = await importFromSource(
+          supabaseUrl,
+          serviceRoleKey,
+          adminKey,
+          job,
+          sourceUrl,
         );
-    }
 
-    try {
-        const supabaseUrl =
-            Deno.env.get('SUPABASE_URL');
+        /*
+         * Treatment not found.
+         *
+         * The existing source may be
+         * stale, wrong, or a patient
+         * portal rather than the actual
+         * public price list.
+         */
+        if (!importResult.imported || !importResult.importId) {
+          const oldSourceUrl = sourceUrl;
 
-        const serviceRoleKey =
-            Deno.env.get(
-                'SUPABASE_SERVICE_ROLE_KEY',
-            );
+          console.log("Treatment missing from current source. Rediscovering.", {
+            clinic: job.clinic_name,
 
-        const adminKey =
-            Deno.env.get(
-                'PRICE_IMPORT_ADMIN_KEY',
-            );
+            treatment: job.treatment_code,
 
-        if (
-            !supabaseUrl ||
-            !serviceRoleKey ||
-            !adminKey
-        ) {
-            return jsonResponse(
-                {
-                    error:
-                        'Server credentials missing.',
-                },
-                500,
-            );
-        }
+            oldSourceUrl,
 
-        if (
-            request.headers.get(
-                'x-admin-key',
-            ) !== adminKey
-        ) {
-            return jsonResponse(
-                {
-                    error: 'Unauthorized.',
-                },
-                401,
-            );
-        }
+            reason: importResult.reason,
+          });
 
-        const supabaseAdmin =
-            createClient(
-                supabaseUrl,
-                serviceRoleKey,
-                {
-                    auth: {
-                        persistSession: false,
-                        autoRefreshToken: false,
-                    },
-                },
-            );
+          /*
+           * Clear old source so discovery
+           * cannot simply inherit it.
+           */
+          const { error: clearSourceError } = await supabaseAdmin
+            .from("clinic_price_refresh_queue")
+            .update({
+              source_url: null,
+            })
+            .eq("id", job.id);
 
-        const {
-            data: jobs,
-            error: jobsError,
-        } = await supabaseAdmin
-            .from(
-                'clinic_price_refresh_queue',
-            )
-            .select(`
-                id,
-                google_place_id,
-                clinic_name,
-                source_url,
-                treatment_code,
-                status
-            `)
-            .eq(
-                'status',
-                'pending',
-            )
-            .order(
-                'requested_at',
-                {
-                    ascending: true,
-                },
-            )
-            .limit(3);
+          if (clearSourceError) {
+            console.error("Could not clear stale source:", clearSourceError);
+          }
 
-        if (jobsError) {
-            throw jobsError;
-        }
+          const {
+            response: rediscoveryResponse,
 
-        if (
-            !jobs ||
-            jobs.length === 0
-        ) {
-            return jsonResponse({
-                processedCount: 0,
-                results: [],
+            result: rediscoveryResult,
+          } = await discoverPriceSource(
+            supabaseUrl,
+            serviceRoleKey,
+            adminKey,
+            job.id,
+          );
+
+          if (
+            rediscoveryResponse.ok &&
+            rediscoveryResult.discovered &&
+            rediscoveryResult.sourceUrl
+          ) {
+            const newSourceUrl = rediscoveryResult.sourceUrl;
+
+            console.log("Rediscovered price source:", {
+              clinic: job.clinic_name,
+
+              treatment: job.treatment_code,
+
+              oldSourceUrl,
+
+              newSourceUrl,
             });
+
+            /*
+             * Only retry if discovery
+             * actually gave us another
+             * source.
+             */
+            sourceUrl = newSourceUrl;
+
+            importResult = await importFromSource(
+              supabaseUrl,
+              serviceRoleKey,
+              adminKey,
+              job,
+              sourceUrl,
+            );
+          } else {
+            /*
+             * Keep old URL for useful
+             * diagnostics if rediscovery
+             * completely fails.
+             */
+            sourceUrl = oldSourceUrl;
+
+            console.log("Price source rediscovery failed:", {
+              clinic: job.clinic_name,
+
+              treatment: job.treatment_code,
+
+              reason: rediscoveryResult.reason ?? rediscoveryResult.error,
+            });
+          }
         }
 
-        const results:
-            Record<string, unknown>[] =
-            [];
+        /*
+         * Still nothing after both
+         * extraction attempts.
+         */
+        if (!importResult.imported || !importResult.importId) {
+          await supabaseAdmin
+            .from("clinic_price_refresh_queue")
+            .update({
+              status: "completed",
 
-        for (
-            const job of
-            jobs as QueueJob[]
-        ) {
-            let sourceUrl =
-                job.source_url;
+              source_url: sourceUrl,
 
-            try {
-                /*
-                 * Atomically claim.
-                 */
-                const {
-                    data: claimed,
-                    error: claimError,
-                } = await supabaseAdmin
-                    .from(
-                        'clinic_price_refresh_queue',
-                    )
-                    .update({
-                        status:
-                            'processing',
+              completed_at: new Date().toISOString(),
 
-                        started_at:
-                            new Date()
-                                .toISOString(),
+              error_message:
+                importResult.reason ??
+                "Treatment price not found after source rediscovery.",
+            })
+            .eq("id", job.id);
 
-                        error_message:
-                            null,
-                    })
-                    .eq(
-                        'id',
-                        job.id,
-                    )
-                    .eq(
-                        'status',
-                        'pending',
-                    )
-                    .select('id');
+          results.push({
+            clinic: job.clinic_name,
 
-                if (claimError) {
-                    throw claimError;
-                }
+            treatment: job.treatment_code,
 
-                if (
-                    !claimed ||
-                    claimed.length === 0
-                ) {
-                    continue;
-                }
+            published: false,
 
-                /*
-                 * Find official price source.
-                 */
-                if (!sourceUrl) {
-                    const response =
-                        await fetch(
-                            `${supabaseUrl}/functions/v1/discover-clinic-price-source`,
-                            {
-                                method:
-                                    'POST',
+            reason:
+              importResult.reason ?? "Price not found after source rediscovery",
+          });
 
-                                headers:
-                                    internalHeaders(
-                                        serviceRoleKey,
-                                        adminKey,
-                                    ),
-
-                                body:
-                                    JSON.stringify({
-                                        jobId:
-                                            job.id,
-                                    }),
-                            },
-                        );
-
-                    const result =
-                        (await response.json()) as DiscoveryResult;
-
-                    if (
-                        !response.ok ||
-                        !result.discovered ||
-                        !result.sourceUrl
-                    ) {
-                        throw new Error(
-                            result.error ??
-                            result.reason ??
-                            'No official price page found.',
-                        );
-                    }
-
-                    sourceUrl =
-                        result.sourceUrl;
-                }
-
-                /*
-                 * Extract ONLY the treatment
-                 * the patient requested.
-                 */
-                const importResponse =
-                    await fetch(
-                        `${supabaseUrl}/functions/v1/import-clinic-prices`,
-                        {
-                            method:
-                                'POST',
-
-                            headers:
-                                internalHeaders(
-                                    serviceRoleKey,
-                                    adminKey,
-                                ),
-
-                            body:
-                                JSON.stringify({
-                                    googlePlaceId:
-                                        job.google_place_id,
-
-                                    clinicName:
-                                        job.clinic_name,
-
-                                    sourceUrl,
-
-                                    treatmentCode:
-                                        job.treatment_code,
-
-                                    forceRefresh:
-                                        true,
-                                }),
-                        },
-                    );
-
-                const importResult =
-                    (await importResponse.json()) as ImportResult;
-
-                if (
-                    !importResponse.ok
-                ) {
-                    throw new Error(
-                        importResult.error ??
-                        'Price extraction failed.',
-                    );
-                }
-
-                /*
-                 * Official page simply doesn't
-                 * publish this treatment.
-                 */
-                if (
-                    !importResult.imported ||
-                    !importResult.importId
-                ) {
-                    await supabaseAdmin
-                        .from(
-                            'clinic_price_refresh_queue',
-                        )
-                        .update({
-                            status:
-                                'completed',
-
-                            source_url:
-                                sourceUrl,
-
-                            completed_at:
-                                new Date()
-                                    .toISOString(),
-
-                            error_message:
-                                importResult.reason ??
-                                'Treatment price not found.',
-                        })
-                        .eq(
-                            'id',
-                            job.id,
-                        );
-
-                    results.push({
-                        clinic:
-                            job.clinic_name,
-
-                        treatment:
-                            job.treatment_code,
-
-                        published:
-                            false,
-
-                        reason:
-                            importResult.reason ??
-                            'Price not found',
-                    });
-
-                    continue;
-                }
-
-                const candidates =
-                    Array.isArray(
-                        importResult.candidates,
-                    )
-                        ? importResult.candidates
-                        : [];
-
-                /*
-                 * There should now normally
-                 * be exactly ONE candidate.
-                 */
-                const requestedCandidate =
-                    candidates.find(
-                        (candidate) =>
-                            !job.treatment_code ||
-                            candidate.treatmentCode ===
-                            job.treatment_code,
-                    );
-
-                if (
-                    !requestedCandidate
-                ) {
-                    throw new Error(
-                        'Requested treatment candidate missing.',
-                    );
-                }
-
-                const safety =
-                    isCandidateSafe(
-                        requestedCandidate,
-                    );
-
-                if (!safety.safe) {
-                    /*
-                     * Keep import pending for
-                     * PriceImportAdmin.
-                     */
-                    await supabaseAdmin
-                        .from(
-                            'clinic_price_refresh_queue',
-                        )
-                        .update({
-                            status:
-                                'completed',
-
-                            source_url:
-                                sourceUrl,
-
-                            completed_at:
-                                new Date()
-                                    .toISOString(),
-
-                            error_message:
-                                `Manual review: ${safety.reasons.join(
-                                    ', ',
-                                )}`,
-                        })
-                        .eq(
-                            'id',
-                            job.id,
-                        );
-
-                    results.push({
-                        clinic:
-                            job.clinic_name,
-
-                        treatment:
-                            job.treatment_code,
-
-                        published:
-                            false,
-
-                        manualReview:
-                            true,
-
-                        reasons:
-                            safety.reasons,
-                    });
-
-                    continue;
-                }
-
-                /*
-                 * SAFE requested treatment:
-                 * publish immediately.
-                 */
-                const approveResponse =
-                    await fetch(
-                        `${supabaseUrl}/functions/v1/approve-clinic-price-import`,
-                        {
-                            method:
-                                'POST',
-
-                            headers:
-                                internalHeaders(
-                                    serviceRoleKey,
-                                    adminKey,
-                                ),
-
-                            body:
-                                JSON.stringify({
-                                    importId:
-                                        importResult.importId,
-
-                                    candidates:
-                                        [
-                                            {
-                                                treatmentCode:
-                                                    requestedCandidate.treatmentCode,
-
-                                                priceFrom:
-                                                    requestedCandidate.priceFrom,
-
-                                                priceTo:
-                                                    requestedCandidate.priceTo,
-                                            },
-                                        ],
-                                }),
-                        },
-                    );
-
-                const approveResult =
-                    (await approveResponse.json()) as ApproveResult;
-
-                if (
-                    !approveResponse.ok
-                ) {
-                    throw new Error(
-                        approveResult.error ??
-                        'Auto approval failed.',
-                    );
-                }
-
-                await supabaseAdmin
-                    .from(
-                        'clinic_price_refresh_queue',
-                    )
-                    .update({
-                        status:
-                            'completed',
-
-                        source_url:
-                            sourceUrl,
-
-                        completed_at:
-                            new Date()
-                                .toISOString(),
-
-                        error_message:
-                            null,
-                    })
-                    .eq(
-                        'id',
-                        job.id,
-                    );
-
-                results.push({
-                    clinic:
-                        job.clinic_name,
-
-                    treatment:
-                        job.treatment_code,
-
-                    published:
-                        true,
-
-                    priceFrom:
-                        requestedCandidate.priceFrom,
-
-                    priceTo:
-                        requestedCandidate.priceTo,
-                });
-            } catch (error) {
-                const message =
-                    error instanceof Error
-                        ? error.message
-                        : 'Unknown error';
-
-                console.error(
-                    `Refresh failed: ${job.clinic_name}`,
-                    error,
-                );
-
-                await supabaseAdmin
-                    .from(
-                        'clinic_price_refresh_queue',
-                    )
-                    .update({
-                        status:
-                            'error',
-
-                        source_url:
-                            sourceUrl,
-
-                        completed_at:
-                            new Date()
-                                .toISOString(),
-
-                        error_message:
-                            message,
-                    })
-                    .eq(
-                        'id',
-                        job.id,
-                    );
-
-                results.push({
-                    clinic:
-                        job.clinic_name,
-
-                    treatment:
-                        job.treatment_code,
-
-                    published:
-                        false,
-
-                    error:
-                        message,
-                });
-            }
+          continue;
         }
 
-        return jsonResponse({
-            processedCount:
-                results.length,
-            results,
+        const candidates = Array.isArray(importResult.candidates)
+          ? importResult.candidates
+          : [];
+
+        /*
+         * We normally expect exactly
+         * one requested treatment.
+         */
+        const requestedCandidate = candidates.find(
+          (candidate) =>
+            !job.treatment_code ||
+            candidate.treatmentCode === job.treatment_code,
+        );
+
+        if (!requestedCandidate) {
+          throw new Error("Requested treatment candidate missing.");
+        }
+
+        const safety = isCandidateSafe(requestedCandidate);
+
+        if (!safety.safe) {
+          /*
+           * Leave import pending for
+           * manual PriceImportAdmin review.
+           */
+          await supabaseAdmin
+            .from("clinic_price_refresh_queue")
+            .update({
+              status: "completed",
+
+              source_url: sourceUrl,
+
+              completed_at: new Date().toISOString(),
+
+              error_message: `Manual review: ${safety.reasons.join(", ")}`,
+            })
+            .eq("id", job.id);
+
+          results.push({
+            clinic: job.clinic_name,
+
+            treatment: job.treatment_code,
+
+            published: false,
+
+            manualReview: true,
+
+            reasons: safety.reasons,
+          });
+
+          continue;
+        }
+
+        /*
+         * Safe treatment:
+         * publish automatically.
+         */
+        const approveResponse = await fetch(
+          `${supabaseUrl}/functions/v1/approve-clinic-price-import`,
+          {
+            method: "POST",
+
+            headers: internalHeaders(serviceRoleKey, adminKey),
+
+            body: JSON.stringify({
+              importId: importResult.importId,
+
+              candidates: [
+                {
+                  treatmentCode: requestedCandidate.treatmentCode,
+
+                  priceFrom: requestedCandidate.priceFrom,
+
+                  priceTo: requestedCandidate.priceTo,
+                },
+              ],
+            }),
+          },
+        );
+
+        const approveResult = (await approveResponse.json()) as ApproveResult;
+
+        if (!approveResponse.ok) {
+          throw new Error(approveResult.error ?? "Auto approval failed.");
+        }
+
+        await supabaseAdmin
+          .from("clinic_price_refresh_queue")
+          .update({
+            status: "completed",
+
+            source_url: sourceUrl,
+
+            completed_at: new Date().toISOString(),
+
+            error_message: null,
+          })
+          .eq("id", job.id);
+
+        results.push({
+          clinic: job.clinic_name,
+
+          treatment: job.treatment_code,
+
+          published: true,
+
+          priceFrom: requestedCandidate.priceFrom,
+
+          priceTo: requestedCandidate.priceTo,
         });
-    } catch (error) {
-        console.error(
-            'Processor error:',
-            error,
-        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
 
-        return jsonResponse(
-            {
-                error:
-                    error instanceof Error
-                        ? error.message
-                        : 'Unknown error.',
-            },
-            500,
-        );
+        console.error(`Refresh failed: ${job.clinic_name}`, error);
+
+        await supabaseAdmin
+          .from("clinic_price_refresh_queue")
+          .update({
+            status: "error",
+
+            source_url: sourceUrl,
+
+            completed_at: new Date().toISOString(),
+
+            error_message: message,
+          })
+          .eq("id", job.id);
+
+        results.push({
+          clinic: job.clinic_name,
+
+          treatment: job.treatment_code,
+
+          published: false,
+
+          error: message,
+        });
+      }
     }
+
+    return jsonResponse({
+      processedCount: results.length,
+
+      results,
+    });
+  } catch (error) {
+    console.error("Processor error:", error);
+
+    return jsonResponse(
+      {
+        error: error instanceof Error ? error.message : "Unknown error.",
+      },
+      500,
+    );
+  }
 });

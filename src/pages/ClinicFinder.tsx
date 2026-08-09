@@ -1,5 +1,4 @@
 import { useRef, useState } from "react";
-
 import { supabase } from "@/lib/supabase";
 import { addPricesToClinics } from "@/services/priceService";
 import type { Clinic } from "@/types/pia";
@@ -21,32 +20,41 @@ interface ClinicFinderProps {
     onBack: () => void;
 }
 
-function toCanonicalTreatmentCode(
-    treatment: string,
-) {
+const MAX_PRICE_POLLS = 24;
+const PRICE_POLL_DELAY_MS = 2500;
+
+function delay(ms: number) {
+    return new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms);
+    });
+}
+
+function toCanonicalTreatmentCode(treatment: string) {
     const treatmentMap: Record<string, string> = {
         checkup: "examination",
+        examination: "examination",
+
         emergency: "emergency_consultation",
+        emergency_consultation: "emergency_consultation",
+
         root_canal: "root_canal",
+
         cosmetic: "teeth_whitening",
+        teeth_whitening: "teeth_whitening",
+
         crown: "crown",
     };
 
-    return (
-        treatmentMap[treatment] ??
-            treatment
-    );
+    return treatmentMap[treatment] ?? treatment;
 }
 
-function getTreatmentLabel(
-    treatment: string,
-) {
+function getTreatmentLabel(treatment: string) {
     const labels: Record<string, string> = {
         checkup: "Undersøkelse",
         examination: "Undersøkelse",
 
-        emergency: "Akutt konsultasjon",
-        emergency_consultation: "Akutt konsultasjon",
+        emergency: "Akuttkonsultasjon",
+        emergency_consultation: "Akuttkonsultasjon",
 
         root_canal: "Rotfylling",
 
@@ -56,50 +64,35 @@ function getTreatmentLabel(
         crown: "Tannkrone",
     };
 
+    return labels[treatment] ?? treatment;
+}
+
+function clinicHasPrice(clinic: Clinic) {
     return (
-        labels[treatment] ??
-            "Behandling"
+        Array.isArray(clinic.prices) &&
+        clinic.prices.length > 0
     );
 }
 
-function hasPrice(
-    clinic: Clinic,
-) {
-    return (
-        Array.isArray(
-            clinic.prices,
-        ) &&
-        clinic.prices.length > 0
-    );
+function formatPhoneLink(phone: string) {
+    return phone.replace(/[^\d+]/g, "");
 }
 
 export default function ClinicFinder({
     onBack,
 }: ClinicFinderProps) {
-    const [
-        location,
-        setLocation,
-    ] = useState("Jessheim");
+    const [location, setLocation] = useState("Jessheim");
 
-    const [
-        coordinates,
-        setCoordinates,
-    ] = useState<
+    const [coordinates, setCoordinates] = useState<
         {
             latitude: number;
             longitude: number;
         } | null
     >(null);
 
-    const [
-        locationError,
-        setLocationError,
-    ] = useState("");
+    const [locationError, setLocationError] = useState("");
 
-    const [
-        clinics,
-        setClinics,
-    ] = useState<Clinic[]>([]);
+    const [clinics, setClinics] = useState<Clinic[]>([]);
 
     const [
         loadingClinics,
@@ -119,46 +112,47 @@ export default function ClinicFinder({
     const [
         selectedTreatment,
         setSelectedTreatment,
-    ] = useState(
-        "root_canal",
-    );
+    ] = useState("root_canal");
 
-    /*
-     * Clinics currently waiting for
-     * backend price extraction.
-     */
     const [
         refreshingClinicIds,
         setRefreshingClinicIds,
-    ] = useState<
-        Set<string>
-    >(new Set());
+    ] = useState<Set<string>>(
+        new Set(),
+    );
 
-    /*
-     * Clinics where the current refresh
-     * finished/timed out without a
-     * published price.
-     */
     const [
         unavailableClinicIds,
         setUnavailableClinicIds,
-    ] = useState<
-        Set<string>
-    >(new Set());
+    ] = useState<Set<string>>(
+        new Set(),
+    );
 
     /*
-     * Every new search/treatment change
-     * invalidates older polling loops.
+     * Every new search or treatment selection gets
+     * a new ID.
+     *
+     * Older async work checks this value before
+     * touching React state. This prevents an old
+     * Rotfylling poll from overwriting newer
+     * Undersøkelse results.
      */
-    const refreshGeneration = useRef(0);
+    const priceRequestIdRef = useRef(0);
+
+    function isRequestCurrent(
+        requestId: number,
+    ) {
+        return (
+            requestId ===
+                priceRequestIdRef.current
+        );
+    }
 
     function useCurrentLocation() {
         setLocationError("");
         setClinicError("");
 
-        if (
-            !navigator.geolocation
-        ) {
+        if (!navigator.geolocation) {
             setLocationError(
                 "Nettleseren støtter ikke posisjon.",
             );
@@ -166,46 +160,53 @@ export default function ClinicFinder({
             return;
         }
 
-        navigator.geolocation
-            .getCurrentPosition(
-                (position) => {
-                    const latitude = position.coords
-                        .latitude;
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                setCoordinates({
+                    latitude: position.coords.latitude,
 
-                    const longitude = position.coords
-                        .longitude;
+                    longitude: position.coords.longitude,
+                });
 
-                    setCoordinates({
-                        latitude,
-                        longitude,
-                    });
+                setLocation(
+                    "Din posisjon",
+                );
+            },
+            () => {
+                setLocationError(
+                    "Kunne ikke hente posisjonen. Sjekk at du har gitt nettleseren tilgang.",
+                );
+            },
+            {
+                enableHighAccuracy: true,
 
-                    setLocation(
-                        "Din posisjon",
-                    );
-                },
-                () => {
-                    setLocationError(
-                        "Kunne ikke hente posisjonen. Sjekk at du har gitt nettleseren tilgang.",
-                    );
-                },
-                {
-                    enableHighAccuracy: true,
+                timeout: 10000,
 
-                    timeout: 10000,
-
-                    maximumAge: 60000,
-                },
-            );
+                maximumAge: 60000,
+            },
+        );
     }
 
     async function refreshMissingPrices(
         clinicsToCheck: Clinic[],
         treatmentCode: string,
+        requestId: number,
     ) {
+        /*
+         * Don't even start if this request
+         * became obsolete already.
+         */
+        if (
+            !isRequestCurrent(
+                requestId,
+            )
+        ) {
+            return;
+        }
+
         const missingClinics = clinicsToCheck.filter(
             (clinic) =>
-                !hasPrice(
+                !clinicHasPrice(
                     clinic,
                 ),
         );
@@ -214,10 +215,22 @@ export default function ClinicFinder({
             missingClinics.length ===
                 0
         ) {
+            if (
+                isRequestCurrent(
+                    requestId,
+                )
+            ) {
+                setRefreshingClinicIds(
+                    new Set(),
+                );
+
+                setUnavailableClinicIds(
+                    new Set(),
+                );
+            }
+
             return;
         }
-
-        const generation = ++refreshGeneration.current;
 
         const canonicalTreatmentCode = toCanonicalTreatmentCode(
             treatmentCode,
@@ -229,19 +242,19 @@ export default function ClinicFinder({
             ),
         );
 
-        /*
-         * Immediately show
-         * "Henter pris..." on these cards.
-         */
-        setRefreshingClinicIds(
-            new Set(
+        if (
+            isRequestCurrent(
+                requestId,
+            )
+        ) {
+            setRefreshingClinicIds(
                 missingIds,
-            ),
-        );
+            );
 
-        setUnavailableClinicIds(
-            new Set(),
-        );
+            setUnavailableClinicIds(
+                new Set(),
+            );
+        }
 
         console.log(
             "Queueing missing treatment prices:",
@@ -249,47 +262,46 @@ export default function ClinicFinder({
             canonicalTreatmentCode,
         );
 
-        /*
-         * Queue all missing clinics.
-         */
         await Promise.allSettled(
             missingClinics.map(
                 async (clinic) => {
+                    /*
+                     * If the patient switched treatment
+                     * while we were starting, don't queue
+                     * unnecessary work.
+                     */
+                    if (
+                        !isRequestCurrent(
+                            requestId,
+                        )
+                    ) {
+                        return;
+                    }
+
                     const {
                         data,
                         error,
-                    } = await supabase
-                        .functions
-                        .invoke(
-                            "queue-clinic-price-refresh",
-                            {
-                                body: {
-                                    googlePlaceId: clinic.id,
+                    } = await supabase.functions.invoke(
+                        "queue-clinic-price-refresh",
+                        {
+                            body: {
+                                googlePlaceId: clinic.id,
 
-                                    clinicName: clinic.name,
+                                clinicName: clinic.name,
 
-                                    clinicCity: clinic.city ?? null,
+                                clinicCity: clinic.city ??
+                                    null,
 
-                                    /*
-                                     * Known actual price page, if we
-                                     * already have one.
-                                     */
-                                    sourceUrl: clinic.priceListUrl ??
-                                        null,
+                                sourceUrl: clinic.priceListUrl ??
+                                    null,
 
-                                    /*
-                                     * Official Google-listed clinic website.
-                                     *
-                                     * Source discovery can start here when
-                                     * we don't already know /priser.
-                                     */
-                                    websiteUrl: clinic.website ??
-                                        null,
+                                websiteUrl: clinic.website ??
+                                    null,
 
-                                    treatmentCode: canonicalTreatmentCode,
-                                },
+                                treatmentCode: canonicalTreatmentCode,
                             },
-                        );
+                        },
+                    );
 
                     if (error) {
                         console.error(
@@ -309,98 +321,114 @@ export default function ClinicFinder({
         );
 
         /*
-         * Poll approved prices for roughly
-         * 30 seconds.
-         *
-         * Website fetch + OpenAI extraction
-         * can take considerably longer than
-         * the old 7.5 second window.
+         * User may have switched treatment while
+         * queue requests were running.
          */
-        const maxAttempts = 12;
-        const pollDelay = 2500;
-
-        let lastResult = clinicsToCheck;
-
-        for (
-            let attempt = 0;
-            attempt < maxAttempts;
-            attempt++
+        if (
+            !isRequestCurrent(
+                requestId,
+            )
         ) {
-            /*
-             * Ignore an old polling loop if
-             * the patient started a new search
-             * or selected another treatment.
-             */
-            if (
-                generation !==
-                    refreshGeneration.current
-            ) {
-                return;
-            }
-
-            await new Promise(
-                (resolve) =>
-                    setTimeout(
-                        resolve,
-                        pollDelay,
-                    ),
+            console.log(
+                "Stopping stale price refresh after queue:",
+                treatmentCode,
             );
 
-            try {
-                const refreshed = await addPricesToClinics(
-                    clinicsToCheck,
+            return;
+        }
+
+        let latestClinics = clinicsToCheck;
+
+        for (
+            let attempt = 1;
+            attempt <=
+                MAX_PRICE_POLLS;
+            attempt++
+        ) {
+            await delay(
+                PRICE_POLL_DELAY_MS,
+            );
+
+            /*
+             * THIS is the important race-condition fix.
+             */
+            if (
+                !isRequestCurrent(
+                    requestId,
+                )
+            ) {
+                console.log(
+                    "Stopping stale price poll:",
                     treatmentCode,
                 );
 
+                return;
+            }
+
+            try {
+                const refreshed = await addPricesToClinics(
+                    latestClinics,
+                    treatmentCode,
+                );
+
+                /*
+                 * addPricesToClinics itself is async.
+                 * Treatment could have changed while
+                 * awaiting it.
+                 */
                 if (
-                    generation !==
-                        refreshGeneration.current
+                    !isRequestCurrent(
+                        requestId,
+                    )
                 ) {
+                    console.log(
+                        "Ignoring stale price response:",
+                        treatmentCode,
+                    );
+
                     return;
                 }
 
-                lastResult = refreshed;
+                latestClinics = refreshed;
 
                 setClinics(
                     refreshed,
                 );
 
-                const stillMissingIds = new Set(
-                    refreshed
-                        .filter(
-                            (
-                                clinic,
-                            ) => !hasPrice(
-                                clinic,
-                            ),
-                        )
-                        .map(
-                            (
-                                clinic,
-                            ) => clinic.id,
+                const stillMissing = refreshed.filter(
+                    (clinic) =>
+                        !clinicHasPrice(
+                            clinic,
                         ),
                 );
 
-                /*
-                 * Remove cards from loading
-                 * immediately when their price
-                 * appears.
-                 */
+                const stillMissingIds = new Set(
+                    stillMissing.map(
+                        (clinic) => clinic.id,
+                    ),
+                );
+
                 setRefreshingClinicIds(
                     stillMissingIds,
                 );
 
                 console.log(
-                    `Price poll ${attempt + 1}/${maxAttempts}:`,
+                    `Price poll ${attempt}/${MAX_PRICE_POLLS}:`,
                     {
-                        missing: stillMissingIds.size,
+                        treatmentCode: canonicalTreatmentCode,
+
+                        missing: stillMissing.length,
                     },
                 );
 
                 if (
-                    stillMissingIds.size ===
+                    stillMissing.length ===
                         0
                 ) {
+                    setRefreshingClinicIds(
+                        new Set(),
+                    );
+
                     setUnavailableClinicIds(
                         new Set(),
                     );
@@ -408,6 +436,14 @@ export default function ClinicFinder({
                     return;
                 }
             } catch (error) {
+                if (
+                    !isRequestCurrent(
+                        requestId,
+                    )
+                ) {
+                    return;
+                }
+
                 console.error(
                     "Could not re-check refreshed prices:",
                     error,
@@ -415,34 +451,22 @@ export default function ClinicFinder({
             }
         }
 
+        /*
+         * One final race check before marking
+         * cards as unavailable.
+         */
         if (
-            generation !==
-                refreshGeneration.current
+            !isRequestCurrent(
+                requestId,
+            )
         ) {
             return;
         }
 
-        /*
-         * After ~30 seconds, stop spinning.
-         *
-         * These clinics may have:
-         * - no public price page,
-         * - no price for this treatment,
-         * - an ambiguous import requiring
-         *   manual review,
-         * - a failed source fetch,
-         * - or a still-running backend job.
-         */
-        const unavailable = new Set(
-            lastResult
-                .filter(
-                    (clinic) =>
-                        !hasPrice(
-                            clinic,
-                        ),
-                )
-                .map(
-                    (clinic) => clinic.id,
+        const finalMissing = latestClinics.filter(
+            (clinic) =>
+                !clinicHasPrice(
+                    clinic,
                 ),
         );
 
@@ -451,11 +475,21 @@ export default function ClinicFinder({
         );
 
         setUnavailableClinicIds(
-            unavailable,
+            new Set(
+                finalMissing.map(
+                    (clinic) => clinic.id,
+                ),
+            ),
         );
     }
 
     async function searchClinics() {
+        /*
+         * New search invalidates ALL previous
+         * price/search activity.
+         */
+        const requestId = ++priceRequestIdRef.current;
+
         if (
             !coordinates &&
             !location.trim()
@@ -467,10 +501,9 @@ export default function ClinicFinder({
             return;
         }
 
-        /*
-         * Cancel previous price polling.
-         */
-        refreshGeneration.current++;
+        setClinicError("");
+        setLoadingClinics(true);
+        setHasSearched(true);
 
         setRefreshingClinicIds(
             new Set(),
@@ -479,12 +512,6 @@ export default function ClinicFinder({
         setUnavailableClinicIds(
             new Set(),
         );
-
-        setClinicError("");
-        setLoadingClinics(
-            true,
-        );
-        setHasSearched(true);
 
         try {
             const body = coordinates
@@ -500,14 +527,24 @@ export default function ClinicFinder({
             const {
                 data,
                 error,
-            } = await supabase
-                .functions
-                .invoke(
-                    "search-clinics",
-                    {
-                        body,
-                    },
-                );
+            } = await supabase.functions.invoke(
+                "search-clinics",
+                {
+                    body,
+                },
+            );
+
+            /*
+             * User may have started another search
+             * while Google Places was loading.
+             */
+            if (
+                !isRequestCurrent(
+                    requestId,
+                )
+            ) {
+                return;
+            }
 
             if (error) {
                 console.error(
@@ -533,33 +570,48 @@ export default function ClinicFinder({
                 ? (data.clinics as Clinic[])
                 : [];
 
+            /*
+             * Capture the treatment used for this
+             * specific search.
+             */
+            const treatmentForSearch = selectedTreatment;
+
             const resultsWithPrices = await addPricesToClinics(
                 results,
-                selectedTreatment,
+                treatmentForSearch,
             );
+
+            if (
+                !isRequestCurrent(
+                    requestId,
+                )
+            ) {
+                return;
+            }
 
             console.log(
                 "Clinics with prices:",
                 resultsWithPrices,
             );
 
-            /*
-             * Show clinics and already-cached
-             * prices immediately.
-             */
             setClinics(
                 resultsWithPrices,
             );
 
-            /*
-             * Start missing price lookup
-             * without blocking the clinic list.
-             */
             void refreshMissingPrices(
                 resultsWithPrices,
-                selectedTreatment,
+                treatmentForSearch,
+                requestId,
             );
         } catch (error) {
+            if (
+                !isRequestCurrent(
+                    requestId,
+                )
+            ) {
+                return;
+            }
+
             console.error(
                 "Clinic search failed:",
                 error,
@@ -569,8 +621,123 @@ export default function ClinicFinder({
                 "Noe gikk galt under klinikksøket.",
             );
         } finally {
-            setLoadingClinics(
-                false,
+            /*
+             * Don't let an old search stop the
+             * loading indicator for a newer one.
+             */
+            if (
+                isRequestCurrent(
+                    requestId,
+                )
+            ) {
+                setLoadingClinics(
+                    false,
+                );
+            }
+        }
+    }
+
+    async function changeTreatment(
+        newTreatment: string,
+    ) {
+        /*
+         * Immediately invalidate the old polling loop.
+         */
+        const requestId = ++priceRequestIdRef.current;
+
+        setSelectedTreatment(
+            newTreatment,
+        );
+
+        setUnavailableClinicIds(
+            new Set(),
+        );
+
+        setRefreshingClinicIds(
+            new Set(),
+        );
+
+        if (
+            clinics.length ===
+                0
+        ) {
+            return;
+        }
+
+        /*
+         * Remove the previous treatment prices
+         * immediately.
+         *
+         * This prevents old Rotfylling numbers from
+         * remaining visible while Undersøkelse loads.
+         */
+        const cleanClinics = clinics.map(
+            (clinic): Clinic => ({
+                ...clinic,
+                prices: [],
+            }),
+        );
+
+        setClinics(
+            cleanClinics,
+        );
+
+        setRefreshingClinicIds(
+            new Set(
+                cleanClinics.map(
+                    (clinic) => clinic.id,
+                ),
+            ),
+        );
+
+        try {
+            const clinicsWithNewPrices = await addPricesToClinics(
+                cleanClinics,
+                newTreatment,
+            );
+
+            /*
+             * Treatment changed again while
+             * lookup was running.
+             */
+            if (
+                !isRequestCurrent(
+                    requestId,
+                )
+            ) {
+                console.log(
+                    "Ignoring stale treatment response:",
+                    newTreatment,
+                );
+
+                return;
+            }
+
+            setClinics(
+                clinicsWithNewPrices,
+            );
+
+            void refreshMissingPrices(
+                clinicsWithNewPrices,
+                newTreatment,
+                requestId,
+            );
+        } catch (error) {
+            if (
+                !isRequestCurrent(
+                    requestId,
+                )
+            ) {
+                return;
+            }
+
+            console.error(
+                "Treatment price update failed:",
+                error,
+            );
+
+            setRefreshingClinicIds(
+                new Set(),
             );
         }
     }
@@ -587,22 +754,22 @@ export default function ClinicFinder({
                         <ArrowLeft
                             size={18}
                         />
+
                         Tilbake
                     </button>
 
-                    <div className="flex items-center gap-3">
-                        <img
-                            src="/logo_web.png"
-                            alt="Pocket Dentist"
-                            className="h-9 object-contain"
-                        />
-                    </div>
+                    <img
+                        src="/logo_web.png"
+                        alt="Pocket Dentist"
+                        className="h-9 object-contain"
+                    />
 
                     <div className="hidden text-xs font-bold text-[#7d91a3] sm:flex sm:items-center sm:gap-2">
                         <ShieldCheck
                             size={16}
                             className="text-[#14b8c4]"
                         />
+
                         Trygg klinikksammenligning
                     </div>
                 </div>
@@ -616,11 +783,13 @@ export default function ClinicFinder({
                                 <MapPin
                                     size={14}
                                 />
+
                                 Finn tannlege nær deg
                             </div>
 
                             <h1 className="mt-5 text-4xl font-black tracking-[-0.045em] text-[#10233f] sm:text-5xl">
                                 Finn riktig tannklinikk
+
                                 <span className="text-[#14b8c4]">
                                     {" "}
                                     i nærheten
@@ -628,8 +797,8 @@ export default function ClinicFinder({
                             </h1>
 
                             <p className="mt-4 max-w-2xl text-base leading-7 text-[#6f8496]">
-                                Sammenlign klinikker, vurderinger og
-                                tilgjengelige behandlingspriser.
+                                Sammenlign klinikker, vurderinger og offentlige
+                                behandlingspriser.
                             </p>
                         </div>
 
@@ -680,6 +849,7 @@ export default function ClinicFinder({
                                     <Navigation
                                         size={17}
                                     />
+
                                     Bruk min posisjon
                                 </button>
 
@@ -689,9 +859,18 @@ export default function ClinicFinder({
                                     disabled={loadingClinics}
                                     className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl bg-[#14c8d4] px-7 text-sm font-black text-white shadow-lg shadow-[#14c8d4]/20 transition hover:bg-[#0fb3be] disabled:cursor-not-allowed disabled:opacity-60"
                                 >
-                                    <Search
-                                        size={17}
-                                    />
+                                    {loadingClinics
+                                        ? (
+                                            <Loader2
+                                                size={17}
+                                                className="animate-spin"
+                                            />
+                                        )
+                                        : (
+                                            <Search
+                                                size={17}
+                                            />
+                                        )}
 
                                     {loadingClinics ? "Søker..." : "Søk"}
                                 </button>
@@ -708,63 +887,14 @@ export default function ClinicFinder({
                                 <select
                                     id="treatment"
                                     value={selectedTreatment}
-                                    onChange={async (
+                                    onChange={(
                                         event,
                                     ) => {
-                                        const newTreatment = event
-                                            .target
-                                            .value;
-
-                                        refreshGeneration.current++;
-
-                                        setSelectedTreatment(
-                                            newTreatment,
+                                        void changeTreatment(
+                                            event
+                                                .target
+                                                .value,
                                         );
-
-                                        setRefreshingClinicIds(
-                                            new Set(),
-                                        );
-
-                                        setUnavailableClinicIds(
-                                            new Set(),
-                                        );
-
-                                        if (
-                                            clinics.length ===
-                                                0
-                                        ) {
-                                            return;
-                                        }
-
-                                        setLoadingClinics(
-                                            true,
-                                        );
-
-                                        try {
-                                            const clinicsWithNewPrices =
-                                                await addPricesToClinics(
-                                                    clinics,
-                                                    newTreatment,
-                                                );
-
-                                            setClinics(
-                                                clinicsWithNewPrices,
-                                            );
-
-                                            void refreshMissingPrices(
-                                                clinicsWithNewPrices,
-                                                newTreatment,
-                                            );
-                                        } catch (error) {
-                                            console.error(
-                                                "Treatment price update failed:",
-                                                error,
-                                            );
-                                        } finally {
-                                            setLoadingClinics(
-                                                false,
-                                            );
-                                        }
                                     }}
                                     className="h-12 w-full rounded-2xl border border-[#dce7ed] bg-white px-4 text-sm font-semibold text-[#10233f] outline-none focus:ring-2 focus:ring-[#14b8c4]/20"
                                 >
@@ -802,17 +932,6 @@ export default function ClinicFinder({
                                 {clinicError}
                             </p>
                         )}
-
-                        {coordinates && (
-                            <p className="mt-3 text-xs text-[#7d91a3]">
-                                Posisjon funnet: {coordinates.latitude.toFixed(
-                                    4,
-                                )}
-                                , {coordinates.longitude.toFixed(
-                                    4,
-                                )}
-                            </p>
-                        )}
                     </div>
                 </section>
 
@@ -841,6 +960,10 @@ export default function ClinicFinder({
                                 (
                                     clinic,
                                 ) => {
+                                    const hasPrice = clinicHasPrice(
+                                        clinic,
+                                    );
+
                                     const isRefreshing = refreshingClinicIds
                                         .has(
                                             clinic.id,
@@ -850,10 +973,6 @@ export default function ClinicFinder({
                                         .has(
                                             clinic.id,
                                         );
-
-                                    const clinicHasPrice = hasPrice(
-                                        clinic,
-                                    );
 
                                     return (
                                         <article
@@ -916,9 +1035,9 @@ export default function ClinicFinder({
                                                     </div>
                                                 )}
 
-                                            {clinicHasPrice && (
+                                            {hasPrice && (
                                                 <div className="mt-5 rounded-2xl bg-[#f4f8fb] p-4">
-                                                    {clinic.prices!.map(
+                                                    {clinic.prices?.map(
                                                         (
                                                             price,
                                                             index,
@@ -972,7 +1091,38 @@ export default function ClinicFinder({
                                                 </div>
                                             )}
 
-                                            {!clinicHasPrice &&
+                                            {!hasPrice &&
+                                                isRefreshing && (
+                                                <div className="mt-5 rounded-2xl border border-[#d9edf0] bg-[#f0fbfc] p-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <Loader2
+                                                            size={19}
+                                                            className="shrink-0 animate-spin text-[#14b8c4]"
+                                                        />
+
+                                                        <div>
+                                                            <p className="text-xs font-bold uppercase tracking-wide text-[#7b91a3]">
+                                                                {getTreatmentLabel(
+                                                                    selectedTreatment,
+                                                                )}
+                                                            </p>
+
+                                                            <p className="mt-1 font-black text-[#10233f]">
+                                                                Henter pris…
+                                                            </p>
+
+                                                            <p className="mt-1 text-xs leading-5 text-[#7d91a3]">
+                                                                Vi sjekker
+                                                                klinikkens
+                                                                offentlige
+                                                                priskilder.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {!hasPrice &&
                                                 !isRefreshing &&
                                                 isUnavailable && (
                                                 <div className="mt-5 rounded-2xl bg-[#f7f9fa] p-4">
@@ -992,20 +1142,17 @@ export default function ClinicFinder({
                                                                 Vi fant ingen
                                                                 offentlig pris
                                                                 for denne
-                                                                behandlingen. Du
-                                                                kan kontakte
+                                                                behandlingen.
+                                                                Kontakt
                                                                 klinikken eller
-                                                                sjekke nettsiden
-                                                                deres.
+                                                                sjekk nettsiden.
                                                             </p>
                                                         )
                                                         : (
                                                             <p className="mt-1 text-sm leading-5 text-[#7d91a3]">
                                                                 Ingen offentlig
                                                                 nettside ble
-                                                                funnet for
-                                                                klinikken.
-                                                                Kontakt
+                                                                funnet. Kontakt
                                                                 klinikken
                                                                 direkte for
                                                                 pris.
@@ -1022,7 +1169,10 @@ export default function ClinicFinder({
                                                         rel="noreferrer"
                                                         className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#10233f] px-4 py-3 text-sm font-black text-white transition hover:bg-[#1a3558]"
                                                     >
-                                                        <Globe2 size={17} />
+                                                        <Globe2
+                                                            size={17}
+                                                        />
+
                                                         Se nettside
                                                     </a>
                                                 )}
@@ -1030,15 +1180,16 @@ export default function ClinicFinder({
                                                 {clinic.phone && (
                                                     <a
                                                         href={`tel:${
-                                                            clinic.phone
-                                                                .replace(
-                                                                    /[^\d+]/g,
-                                                                    "",
-                                                                )
+                                                            formatPhoneLink(
+                                                                clinic.phone,
+                                                            )
                                                         }`}
                                                         className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#14c8d4] px-4 py-3 text-sm font-black text-white transition hover:bg-[#0fb3be]"
                                                     >
-                                                        <Phone size={17} />
+                                                        <Phone
+                                                            size={17}
+                                                        />
+
                                                         Ring klinikken
                                                     </a>
                                                 )}
@@ -1051,7 +1202,10 @@ export default function ClinicFinder({
                                                         rel="noreferrer"
                                                         className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-[#dce7ed] px-4 py-3 text-sm font-black text-[#536e83] transition hover:bg-[#f5f9fb]"
                                                     >
-                                                        <MapPin size={17} />
+                                                        <MapPin
+                                                            size={17}
+                                                        />
+
                                                         Google Maps
                                                     </a>
                                                 )}
