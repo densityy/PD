@@ -15,6 +15,7 @@ export interface PiaRealtimeConnection {
     dataChannel: RTCDataChannel;
     localStream: MediaStream;
     remoteAudio: HTMLAudioElement;
+    sendEvent: (event: Record<string, unknown>) => void;
     close: () => Promise<void>;
     cancelResponse: () => void;
 }
@@ -123,12 +124,30 @@ export async function connectPiaRealtime(
                             | undefined;
 
                         emit({
-                            type: "response_started",
+                            type: "raw",
+                            event: {
+                                ...event,
+                                responseId:
+                                    typeof response?.id === "string"
+                                        ? response.id
+                                        : undefined,
+                            },
+                        });
 
-                            responseId:
-                                typeof response?.id === "string"
-                                    ? response.id
-                                    : undefined,
+                        break;
+                    }
+
+                    case "output_audio_buffer.started": {
+                        emit({
+                            type: "response_started",
+                        });
+
+                        break;
+                    }
+
+                    case "output_audio_buffer.stopped": {
+                        emit({
+                            type: "response_done",
                         });
 
                         break;
@@ -141,12 +160,14 @@ export async function connectPiaRealtime(
                             | undefined;
 
                         emit({
-                            type: "response_done",
-
-                            responseId:
-                                typeof response?.id === "string"
-                                    ? response.id
-                                    : undefined,
+                            type: "raw",
+                            event: {
+                                ...event,
+                                responseId:
+                                    typeof response?.id === "string"
+                                        ? response.id
+                                        : undefined,
+                            },
                         });
 
                         break;
@@ -346,6 +367,7 @@ export async function connectPiaRealtime(
             dataChannel,
             localStream,
             remoteAudio,
+            sendEvent,
             cancelResponse,
             close,
         };
@@ -379,3 +401,4 @@ export async function connectPiaRealtime(
         throw error;
     }
 }
+
