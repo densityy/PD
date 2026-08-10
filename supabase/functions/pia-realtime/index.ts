@@ -129,17 +129,17 @@ Deno.serve(async (req) => {
 
             audio: {
                 input: {
+                    transcription: {
+                        model: "gpt-4o-mini-transcribe",
+                        language: "nb",
+                    },
+
                     turn_detection: {
                         type: "server_vad",
-
                         threshold: 0.5,
-
                         prefix_padding_ms: 300,
-
                         silence_duration_ms: 650,
-
                         create_response: true,
-
                         interrupt_response: true,
                     },
                 },

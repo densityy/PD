@@ -2,6 +2,11 @@ import { supabase } from "@/lib/supabase";
 
 export type PiaRealtimeEvent =
     | { type: "connected" }
+
+    | {
+        type: "user_transcript";
+        transcript: string;
+    }
     | { type: "disconnected" }
     | { type: "speech_started" }
     | { type: "speech_stopped" }
@@ -32,8 +37,20 @@ export async function connectPiaRealtime(
     const peerConnection = new RTCPeerConnection();
 
     const remoteAudio = document.createElement("audio");
+
     remoteAudio.autoplay = true;
     remoteAudio.setAttribute("playsinline", "");
+    remoteAudio.setAttribute("webkit-playsinline", "");
+    remoteAudio.muted = false;
+    remoteAudio.volume = 1;
+
+    remoteAudio.style.position = "fixed";
+    remoteAudio.style.width = "1px";
+    remoteAudio.style.height = "1px";
+    remoteAudio.style.opacity = "0";
+    remoteAudio.style.pointerEvents = "none";
+
+    document.body.appendChild(remoteAudio);
 
     let localStream: MediaStream | null = null;
 
@@ -108,7 +125,21 @@ export async function connectPiaRealtime(
 
                         break;
                     }
+                    case "conversation.item.input_audio_transcription.completed": {
+                        const transcript =
+                            typeof event.transcript === "string"
+                                ? event.transcript.trim()
+                                : "";
 
+                        if (transcript) {
+                            emit({
+                                type: "user_transcript",
+                                transcript,
+                            });
+                        }
+
+                        break;
+                    }
                     case "input_audio_buffer.speech_stopped": {
                         emit({
                             type: "speech_stopped",
@@ -209,11 +240,16 @@ export async function connectPiaRealtime(
 
             remoteAudio.srcObject = stream;
 
-            remoteAudio.play().catch((error) => {
+            void remoteAudio.play().catch((error) => {
                 console.error(
-                    "Could not start Pia remote audio",
+                    "Could not start Pia remote audio:",
                     error,
                 );
+
+                emit({
+                    type: "error",
+                    error,
+                });
             });
         },
     );
@@ -334,7 +370,8 @@ export async function connectPiaRealtime(
         const close = async () => {
             try {
                 if (
-                    dataChannel.readyState === "open"
+                    dataChannel.readyState === "open" ||
+                    dataChannel.readyState === "connecting"
                 ) {
                     dataChannel.close();
                 }
@@ -351,12 +388,17 @@ export async function connectPiaRealtime(
                 }
             }
 
-            remoteAudio.pause();
+            try {
+                remoteAudio.pause();
+            } catch {
+                // Ignore audio cleanup errors.
+            }
+
             remoteAudio.srcObject = null;
+            remoteAudio.remove();
 
             if (
-                peerConnection.connectionState !==
-                "closed"
+                peerConnection.connectionState !== "closed"
             ) {
                 peerConnection.close();
             }
