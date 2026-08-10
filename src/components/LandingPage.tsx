@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   ArrowRight,
   Building2,
-  CheckCircle2,
   LayoutDashboard,
   Menu,
   MessageCircle,
@@ -10,7 +9,9 @@ import {
   Stethoscope,
   X,
 } from "lucide-react";
+
 import PiaChat from "@/components/PiaChat";
+import PiaCall from "@/components/PiaCall";
 import Hero from "@/sections/Hero";
 
 interface LandingPageProps {
@@ -19,18 +20,24 @@ interface LandingPageProps {
 
 const openPia = () => window.dispatchEvent(new Event("open-pia-chat"));
 
-export default function LandingPage({ onOpenPreview }: LandingPageProps) {
+export default function LandingPage({
+  onOpenPreview,
+}: LandingPageProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [piaCallOpen, setPiaCallOpen] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 16);
+
     window.addEventListener("scroll", handleScroll);
+
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   return (
     <div className="min-h-screen bg-[#f7fbff] text-[#10233f]">
+      {/* NAVIGATION */}
       <nav
         className={`fixed inset-x-0 top-0 z-40 transition-all ${
           scrolled
@@ -39,6 +46,7 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
         }`}
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
+          {/* Logo */}
           <a href="#" className="flex items-center gap-3">
             <div className="h-11 w-11 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#d8e7f3]">
               <img
@@ -47,16 +55,19 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
                 className="h-full w-full object-cover"
               />
             </div>
+
             <div>
               <p className="text-[17px] font-extrabold leading-tight">
                 Pocket Dentist
               </p>
+
               <p className="text-[11px] font-medium text-[#668198]">
                 Riktig tannlege, enklere
               </p>
             </div>
           </a>
 
+          {/* Desktop navigation */}
           <div className="hidden items-center gap-8 md:flex">
             <a
               href="#how"
@@ -64,12 +75,14 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
             >
               Slik fungerer det
             </a>
+
             <a
               href="#clinics"
               className="text-sm font-semibold text-[#526c85] hover:text-[#10233f]"
             >
               For klinikker
             </a>
+
             <a
               href="#trust"
               className="text-sm font-semibold text-[#526c85] hover:text-[#10233f]"
@@ -78,6 +91,7 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
             </a>
           </div>
 
+          {/* Desktop buttons */}
           <div className="hidden items-center gap-3 md:flex">
             <button
               type="button"
@@ -87,6 +101,15 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
               <LayoutDashboard size={17} />
               Klinikkdemo
             </button>
+
+            <button
+              type="button"
+              onClick={() => setPiaCallOpen(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-[#b9dff4] bg-white px-5 py-2.5 text-sm font-bold text-[#1689d4] shadow-sm transition hover:bg-[#edf9ff]"
+            >
+              📞 Ring Pia
+            </button>
+
             <button
               type="button"
               onClick={openPia}
@@ -97,6 +120,7 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
             </button>
           </div>
 
+          {/* Mobile menu button */}
           <button
             type="button"
             onClick={() => setMobileMenu((value) => !value)}
@@ -106,6 +130,7 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
           </button>
         </div>
 
+        {/* Mobile menu */}
         {mobileMenu && (
           <div className="border-t border-[#dceaf5] bg-white px-5 py-5 md:hidden">
             <div className="space-y-2">
@@ -116,6 +141,7 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
               >
                 Slik fungerer det
               </a>
+
               <a
                 href="#clinics"
                 onClick={() => setMobileMenu(false)}
@@ -123,15 +149,46 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
               >
                 For klinikker
               </a>
+
+              <a
+                href="#trust"
+                onClick={() => setMobileMenu(false)}
+                className="block rounded-xl px-3 py-2 font-semibold text-[#526c85]"
+              >
+                Trygghet
+              </a>
+
               <button
                 type="button"
                 onClick={() => {
                   setMobileMenu(false);
                   openPia();
                 }}
-                className="mt-2 w-full rounded-xl bg-[#1689d4] px-4 py-3 font-bold text-white"
+                className="mt-3 w-full rounded-xl bg-[#1689d4] px-4 py-3 font-bold text-white"
               >
                 Snakk med Pia
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenu(false);
+                  setPiaCallOpen(true);
+                }}
+                className="w-full rounded-xl border border-[#b9dff4] bg-white px-4 py-3 font-bold text-[#1689d4]"
+              >
+                📞 Ring Pia
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenu(false);
+                  onOpenPreview();
+                }}
+                className="w-full rounded-xl bg-[#eef7fc] px-4 py-3 font-bold text-[#526c85]"
+              >
+                Klinikkdemo
               </button>
             </div>
           </div>
@@ -141,6 +198,7 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
       <main>
         <Hero />
 
+        {/* HOW IT WORKS */}
         <section
           id="how"
           className="relative overflow-hidden bg-white px-6 py-24 sm:py-28"
@@ -169,26 +227,35 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
                   number: "01",
                   icon: MessageCircle,
                   title: "Beskriv problemet",
-                  text: "Fortell Pia hva du trenger hjelp med. Hun stiller noen få enkle spørsmål.",
+                  text:
+                    "Fortell Pia hva du trenger hjelp med. Hun stiller noen få enkle spørsmål.",
                 },
                 {
                   number: "02",
                   icon: Stethoscope,
                   title: "Pia finner riktig klinikk",
-                  text: "AI matcher deg med en passende tannklinikk basert på behov og lokasjon.",
+                  text:
+                    "AI matcher deg med en passende tannklinikk basert på behov og lokasjon.",
                 },
                 {
                   number: "03",
                   icon: Building2,
                   title: "Send forespørselen",
-                  text: "Klinikken mottar informasjonen og tar kontakt med deg så raskt som mulig.",
+                  text:
+                    "Klinikken mottar informasjonen og tar kontakt med deg så raskt som mulig.",
                 },
               ].map((item) => (
-                <div key={item.number} className="relative">
+                <div
+                  key={item.number}
+                  className="relative"
+                >
                   <div className="rounded-3xl border border-[#dfeaf3] bg-white p-8 shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
                     <div className="flex items-center justify-between">
                       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#edf9ff]">
-                        <item.icon size={28} className="text-[#1689d4]" />
+                        <item.icon
+                          size={28}
+                          className="text-[#1689d4]"
+                        />
                       </div>
 
                       <span className="text-sm font-black tracking-widest text-slate-300">
@@ -200,7 +267,9 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
                       {item.title}
                     </h3>
 
-                    <p className="mt-4 leading-7 text-[#647d91]">{item.text}</p>
+                    <p className="mt-4 leading-7 text-[#647d91]">
+                      {item.text}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -208,6 +277,7 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
 
             <div className="mt-14 text-center">
               <button
+                type="button"
                 onClick={openPia}
                 className="inline-flex items-center gap-2 rounded-2xl bg-[#1689d4] px-7 py-4 font-bold text-white shadow-xl shadow-cyan-500/20 hover:bg-[#0878c2]"
               >
@@ -222,6 +292,7 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
           </div>
         </section>
 
+        {/* CLINICS */}
         <section
           id="clinics"
           className="relative overflow-hidden bg-[#f3f9fd] px-5 py-24 sm:py-28 lg:px-8"
@@ -293,22 +364,26 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
                 {
                   icon: MessageCircle,
                   title: "Pasientdialog",
-                  text: "Svar på meldinger og følg opp pasienter fra samme sted.",
+                  text:
+                    "Svar på meldinger og følg opp pasienter fra samme sted.",
                 },
                 {
                   icon: Stethoscope,
                   title: "AI-assistent",
-                  text: "Pia hjelper klinikken med oppfølging og administrative oppgaver.",
+                  text:
+                    "Pia hjelper klinikken med oppfølging og administrative oppgaver.",
                 },
                 {
                   icon: LayoutDashboard,
                   title: "Booking og oversikt",
-                  text: "Se avtaler, nye pasienter og viktige oppgaver med én gang.",
+                  text:
+                    "Se avtaler, nye pasienter og viktige oppgaver med én gang.",
                 },
                 {
                   icon: ShieldCheck,
                   title: "Trygg håndtering",
-                  text: "Strukturert og samtykkebasert håndtering av pasienthenvendelser.",
+                  text:
+                    "Strukturert og samtykkebasert håndtering av pasienthenvendelser.",
                 },
               ].map(({ icon: Icon, title, text }) => (
                 <div
@@ -319,7 +394,9 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
                     <Icon size={23} />
                   </div>
 
-                  <h3 className="mt-5 font-black text-[#10233f]">{title}</h3>
+                  <h3 className="mt-5 font-black text-[#10233f]">
+                    {title}
+                  </h3>
 
                   <p className="mt-2 text-sm leading-6 text-[#71889b]">
                     {text}
@@ -330,34 +407,55 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
           </div>
         </section>
 
-        <section className="bg-white py-24">
+        {/* TRUST / CTA */}
+        <section
+          id="trust"
+          className="bg-white py-24"
+        >
           <div className="mx-auto max-w-5xl px-5 lg:px-8">
             <div className="rounded-[34px] bg-[#1689d4] px-8 py-12 text-center text-white shadow-2xl shadow-[#1689d4]/20">
               <h2 className="text-4xl font-black tracking-[-0.03em]">
                 Trenger du en tannlege?
               </h2>
+
               <p className="mx-auto mt-4 max-w-2xl text-lg leading-8 text-white/80">
                 Start med Pia og send en forespørsel på noen få minutter.
               </p>
-              <button
-                type="button"
-                onClick={openPia}
-                className="mt-7 inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-4 text-base font-extrabold text-[#126fae]"
-              >
-                Start samtalen
-                <ArrowRight size={19} />
-              </button>
+
+              <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={openPia}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-white px-7 py-4 text-base font-extrabold text-[#126fae]"
+                >
+                  Start samtalen
+                  <ArrowRight size={19} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPiaCallOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/40 bg-white/10 px-7 py-4 text-base font-extrabold text-white transition hover:bg-white/20"
+                >
+                  📞 Ring Pia
+                </button>
+              </div>
             </div>
           </div>
         </section>
       </main>
 
+      {/* FOOTER */}
       <footer className="border-t border-[#dceaf4] bg-white py-10">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 md:flex-row md:items-center md:justify-between lg:px-8">
-          <p className="font-extrabold">Pocket Dentist</p>
+          <p className="font-extrabold">
+            Pocket Dentist
+          </p>
+
           <p className="text-sm text-[#8297aa]">
             © 2026 Pocket Dentist. Alle rettigheter forbeholdt.
           </p>
+
           <a
             href="mailto:hei@pocketdentist.no"
             className="text-sm font-semibold text-[#688097]"
@@ -367,7 +465,13 @@ export default function LandingPage({ onOpenPreview }: LandingPageProps) {
         </div>
       </footer>
 
+      {/* PIA */}
       <PiaChat />
+
+      <PiaCall
+        open={piaCallOpen}
+        onClose={() => setPiaCallOpen(false)}
+      />
     </div>
   );
 }

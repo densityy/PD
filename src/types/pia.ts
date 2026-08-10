@@ -1,15 +1,15 @@
-export type Sender = 'pia' | 'user';
+export type Sender = "pia" | "user";
 
 export interface ClinicPrice {
     treatment: string;
     priceFrom?: number;
     priceTo?: number;
-    currency: 'NOK';
+    currency: "NOK";
     sourceType:
-    | 'clinic_submitted'
-    | 'clinic_website'
-    | 'manual'
-    | 'estimated';
+    | "clinic_submitted"
+    | "clinic_website"
+    | "manual"
+    | "estimated";
     sourceUrl?: string;
     verifiedAt?: string;
 }
@@ -30,6 +30,7 @@ export interface Clinic {
     distanceKm?: number;
     isPartner?: boolean;
     isVerified?: boolean;
+    clinicType?: "public" | "private" | null;
     prices?: ClinicPrice[];
     priceListUrl?: string | null;
 }
@@ -48,18 +49,27 @@ export interface ChatMessage {
     referral?: ReferralDetails;
 }
 
+export type PiaAction =
+    | "search_clinics"
+    | "request_location"
+    | "compare_prices"
+    | "check_public_eligibility"
+    | "ask_follow_up"
+    | "show_emergency_advice"
+    | "none";
+
 export type ConversationStep =
-    | 'greeting'
-    | 'reason'
-    | 'severity'
-    | 'duration'
-    | 'location'
-    | 'clinicSelection'
-    | 'name'
-    | 'phone'
-    | 'consent'
-    | 'saving'
-    | 'done';
+    | "greeting"
+    | "reason"
+    | "severity"
+    | "duration"
+    | "location"
+    | "clinicSelection"
+    | "name"
+    | "phone"
+    | "consent"
+    | "saving"
+    | "done";
 
 export interface CollectedPatientData {
     reason?: string;
@@ -70,4 +80,3 @@ export interface CollectedPatientData {
     patientName?: string;
     patientPhone?: string;
 }
-

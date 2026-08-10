@@ -2,12 +2,13 @@ import { supabase } from '@/lib/supabase';
 import type { ChatMessage } from '@/types/pia';
 
 export type PiaAction =
-    | 'search_clinics'
-    | 'compare_prices'
-    | 'check_public_eligibility'
-    | 'ask_follow_up'
-    | 'show_emergency_advice'
-    | 'none';
+    | "search_clinics"
+    | "request_location"
+    | "compare_prices"
+    | "check_public_eligibility"
+    | "ask_follow_up"
+    | "show_emergency_advice"
+    | "none";
 
 export type PiaTreatment =
     | 'toothache'

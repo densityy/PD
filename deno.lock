@@ -1985,6 +1985,9 @@
     }
   },
   "workspace": {
+    "dependencies": [
+      "jsr:@supabase/functions-js@2"
+    ],
     "packageJson": {
       "dependencies": [
         "npm:@eslint/js@^9.9.1",
