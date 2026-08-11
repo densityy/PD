@@ -171,6 +171,16 @@ function PiaModel({
                 getBone(
                     "R_Clavicle",
                 ),
+
+            leftUpperArm:
+                getBone(
+                    "L_Upperarm",
+                ),
+
+            rightUpperArm:
+                getBone(
+                    "R_Upperarm",
+                ),
         };
     }, [gltf.scene]);
 
@@ -194,6 +204,8 @@ function PiaModel({
             bones.waist,
             bones.leftClavicle,
             bones.rightClavicle,
+            bones.leftUpperArm,
+            bones.rightUpperArm,
         ].filter(
             Boolean,
         ) as THREE.Object3D[];
@@ -271,74 +283,192 @@ function PiaModel({
             let spineZ = 0;
 
             let shoulderLift = 0;
+            let leftArmZ = 0;
+            let rightArmZ = 0;
 
             let targetRootX = 0;
             let targetRootY =
                 PORTRAIT_MODEL_Y;
 
             let targetRootZ = 0;
+            let targetRootYRotation = 0;
 
             switch (state) {
                 case "listening": {
                     /*
-                     * Tiny forward lean and attentive head tilt.
+                     * Attentive without moving toward the
+                     * camera: tiny torso tilt, head tilt,
+                     * shoulders relaxed and visible.
                      */
-                    spineX =
-                        -0.035;
-
                     headX =
-                        -0.022;
+                        -0.018;
+
+                    headY =
+                        Math.sin(
+                            t * 0.8,
+                        ) *
+                        0.016;
 
                     headZ =
-                        0.025 +
+                        0.045 +
                         slowSway *
-                            0.008;
+                            0.012;
 
-                    targetRootY +=
+                    neckY =
+                        slowSway *
+                        0.008;
+
+                    spineZ =
+                        slowSway *
+                        0.014;
+
+                    shoulderLift =
                         breathing *
-                        0.004;
+                        0.009;
+
+                    targetRootX =
+                        slowSway *
+                        0.012;
+
+                    targetRootZ =
+                        slowSway *
+                        0.006;
 
                     break;
                 }
 
                 case "thinking": {
+                    /*
+                     * Slower asymmetric pose. This should
+                     * visibly read as a different state.
+                     */
                     headY =
-                        0.055 +
+                        0.075 +
                         slowSway *
-                            0.018;
+                            0.025;
 
                     headZ =
-                        -0.035;
+                        -0.055;
+
+                    headX =
+                        Math.sin(
+                            t * 0.55,
+                        ) *
+                        0.01;
 
                     neckY =
-                        0.018;
+                        0.022;
 
                     spineZ =
+                        -0.018 +
                         slowSway *
-                        0.006;
+                            0.012;
+
+                    shoulderLift =
+                        breathing *
+                        0.005;
+
+                    targetRootX =
+                        -0.012 +
+                        slowSway *
+                        0.008;
+
+                    targetRootZ =
+                        -0.008;
+
+                    targetRootYRotation =
+                        0.018;
 
                     break;
                 }
 
                 case "speaking": {
                     /*
-                     * This is subtle head/body cadence only.
-                     * Real mouth/viseme animation comes after
-                     * we add a facial rig.
+                     * Conversational body language:
+                     * head cadence, torso sway, shoulder
+                     * movement and tiny upper-arm motion.
                      */
                     headX =
                         speechCadence *
-                        0.009;
+                        0.012 +
+                        Math.sin(
+                            t * 1.2,
+                        ) *
+                        0.008;
 
                     headY =
                         Math.sin(
-                            t * 2.2,
+                            t * 1.55,
+                        ) *
+                        0.026;
+
+                    headZ =
+                        Math.sin(
+                            t * 1.05,
+                        ) *
+                        0.018;
+
+                    neckY =
+                        Math.sin(
+                            t * 1.2,
+                        ) *
+                        0.008;
+
+                    spineZ =
+                        Math.sin(
+                            t * 0.9,
+                        ) *
+                        0.02;
+
+                    shoulderLift =
+                        breathing *
+                        0.014;
+
+                    leftArmZ =
+                        Math.sin(
+                            t * 1.1,
+                        ) *
+                        0.008;
+
+                    rightArmZ =
+                        -Math.sin(
+                            t * 1.1,
+                        ) *
+                        0.008;
+
+                    targetRootX =
+                        Math.sin(
+                            t * 0.85,
+                        ) *
+                        0.014;
+
+                    targetRootZ =
+                        Math.sin(
+                            t * 0.75,
+                        ) *
+                        0.009;
+
+                    targetRootYRotation =
+                        Math.sin(
+                            t * 0.7,
                         ) *
                         0.012;
 
-                    spineX =
-                        breathing *
-                        0.006;
+                    break;
+                }
+
+                case "paused": {
+                    headY =
+                        slowSway *
+                        0.01;
+
+                    headZ =
+                        slowSway *
+                        0.008;
+
+                    spineZ =
+                        slowSway *
+                        0.005;
 
                     shoulderLift =
                         breathing *
@@ -347,43 +477,61 @@ function PiaModel({
                     break;
                 }
 
-                case "paused": {
-                    headZ =
-                        slowSway *
-                        0.006;
-
-                    break;
-                }
-
                 case "error": {
                     headZ =
-                        -0.025;
+                        -0.045;
 
                     headX =
-                        0.018;
+                        0.022;
+
+                    spineZ =
+                        -0.012;
 
                     break;
                 }
 
                 case "idle":
                 default: {
+                    /*
+                     * Visible idle life without forward/back
+                     * movement: breathing, shoulder motion,
+                     * head sway and a small torso sway.
+                     */
                     headY =
                         slowSway *
-                        0.012;
+                        0.024;
 
                     headZ =
                         Math.sin(
                             t * 0.5,
                         ) *
-                        0.006;
+                        0.014;
 
-                    spineX =
+                    headX =
+                        Math.sin(
+                            t * 0.42,
+                        ) *
+                        0.005;
+
+                    spineZ =
+                        slowSway *
+                        0.009;
+
+                    shoulderLift =
                         breathing *
+                        0.009;
+
+                    targetRootX =
+                        slowSway *
+                        0.008;
+
+                    targetRootZ =
+                        slowSway *
                         0.004;
 
                     targetRootY +=
                         breathing *
-                        0.003;
+                        0.002;
 
                     break;
                 }
@@ -409,6 +557,14 @@ function PiaModel({
                 damp(
                     root.rotation.z,
                     targetRootZ,
+                    3.5,
+                    delta,
+                );
+
+            root.rotation.y =
+                damp(
+                    root.rotation.y,
+                    targetRootYRotation,
                     3.5,
                     delta,
                 );
@@ -493,15 +649,15 @@ function PiaModel({
 
             animateBone(
                 bones.spine1,
-                spineX * 0.45,
                 0,
-                spineZ * 0.5,
+                0,
+                spineZ * 0.55,
                 4,
             );
 
             animateBone(
                 bones.spine2,
-                spineX,
+                0,
                 0,
                 spineZ,
                 4,
@@ -521,6 +677,22 @@ function PiaModel({
                 0,
                 -shoulderLift,
                 3,
+            );
+
+            animateBone(
+                bones.leftUpperArm,
+                0,
+                0,
+                leftArmZ,
+                3.5,
+            );
+
+            animateBone(
+                bones.rightUpperArm,
+                0,
+                0,
+                rightArmZ,
+                3.5,
             );
         },
     );
