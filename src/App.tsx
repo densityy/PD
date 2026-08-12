@@ -1,10 +1,10 @@
 import { useState } from "react";
+
 import Sidebar from "@/components/Sidebar";
 import Dashboard from "@/components/Dashboard";
 import LandingPage from "@/components/LandingPage";
 import DashboardPreview from "@/components/DashboardPreview";
 import ClinicFinder from "@/pages/ClinicFinder";
-import PriceImportAdmin from "@/pages/PriceImportAdmin";
 
 type Page =
   | "dashboard"
@@ -18,44 +18,35 @@ type View =
   | "landing"
   | "app"
   | "preview"
-  | "clinics"
-  | "price-admin";
+  | "clinics";
 
 export default function App() {
   const [view, setView] = useState<View>("landing");
+
   const [page, setPage] = useState<Page>("dashboard");
 
+  /*
+   * --------------------------------------------------
+   * PUBLIC LANDING PAGE
+   * --------------------------------------------------
+   */
   if (view === "landing") {
     return (
-      <>
-        <LandingPage
-          onOpenPreview={() => setView("app")}
-        />
-
-        <button
-          onClick={() => setView("app")}
-          className="fixed bottom-6 left-6 z-50 rounded-xl bg-[#14c8d4] px-5 py-3 font-bold text-white shadow-lg"
-        >
-          Open Dashboard
-        </button>
-
-        <button
-          onClick={() => setView("clinics")}
-          className="fixed top-24 right-6 z-40 rounded-xl bg-[#10233f] px-5 py-3 font-bold text-white shadow-lg"
-        >
-          Finn klinikk
-        </button>
-
-        <button
-          onClick={() => setView("price-admin")}
-          className="fixed bottom-6 right-6 z-50 rounded-xl bg-[#10233f] px-5 py-3 font-bold text-white shadow-lg"
-        >
-          Prisadmin
-        </button>
-      </>
+      <LandingPage
+        onOpenClinics={() => setView("clinics")}
+        onOpenClinicPlatform={() => {
+          setPage("dashboard");
+          setView("app");
+        }}
+      />
     );
   }
 
+  /*
+   * --------------------------------------------------
+   * PATIENT CLINIC FINDER
+   * --------------------------------------------------
+   */
   if (view === "clinics") {
     return (
       <ClinicFinder
@@ -64,10 +55,11 @@ export default function App() {
     );
   }
 
-  if (view === "price-admin") {
-    return <PriceImportAdmin />;
-  }
-
+  /*
+   * --------------------------------------------------
+   * OPTIONAL DASHBOARD PREVIEW
+   * --------------------------------------------------
+   */
   if (view === "preview") {
     return (
       <DashboardPreview
@@ -76,6 +68,11 @@ export default function App() {
     );
   }
 
+  /*
+   * --------------------------------------------------
+   * CLINIC PLATFORM
+   * --------------------------------------------------
+   */
   return (
     <div className="flex min-h-screen bg-[#f4f8fb]">
       <Sidebar
@@ -87,16 +84,24 @@ export default function App() {
         {page === "dashboard" && <Dashboard />}
 
         {page !== "dashboard" && (
-          <div className="flex min-h-screen flex-col items-center justify-center">
+          <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
             <p className="text-xl font-bold text-[#10233f]">
               Denne siden kommer snart
             </p>
 
+            <p className="mt-2 max-w-md text-sm leading-6 text-[#71889b]">
+              Vi jobber med denne delen av klinikkplattformen.
+            </p>
+
             <button
-              onClick={() => setView("landing")}
-              className="mt-3 text-sm text-[#14c8d4] hover:underline"
+              type="button"
+              onClick={() =>
+                setView(
+                  "landing",
+                )}
+              className="mt-5 rounded-xl border border-[#d8e8f2] bg-white px-5 py-2.5 text-sm font-bold text-[#1689d4] shadow-sm transition hover:bg-[#f3f9fd]"
             >
-              ← Tilbake til nettsiden
+              ← Tilbake til Pocket Dentist
             </button>
           </div>
         )}
