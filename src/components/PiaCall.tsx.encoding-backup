@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import {
     Building2,
     Globe2,
@@ -72,8 +72,8 @@ function toCanonicalTreatmentCode(treatment: string) {
 
 function getTreatmentLabel(treatment: string) {
     const labels: Record<string, string> = {
-        checkup: "Undersøkelse",
-        examination: "Undersøkelse",
+        checkup: "UndersÃƒÂ¸kelse",
+        examination: "UndersÃƒÂ¸kelse",
         emergency: "Akutt konsultasjon",
         emergency_consultation: "Akutt konsultasjon",
         root_canal: "Rotfylling",
@@ -377,7 +377,7 @@ export default function PiaCall({
             );
 
             throw new Error(
-                "Kunne ikke forstå stemmen.",
+                "Kunne ikke forstÃƒÂ¥ stemmen.",
             );
         }
 
@@ -554,7 +554,7 @@ export default function PiaCall({
             setPiaState("idle");
 
             setErrorMessage(
-                "Trykk på mikrofonen for å fortsette samtalen.",
+                "Trykk pÃƒÂ¥ mikrofonen for ÃƒÂ¥ fortsette samtalen.",
             );
         }
     };
@@ -933,11 +933,13 @@ export default function PiaCall({
          */
         realtimeSessionIdRef.current = null;
 
-        const activeRealtimeConnection = realtimeConnectionRef.current;
+        const activeRealtimeConnection =
+            realtimeConnectionRef.current;
 
         realtimeConnectionRef.current = null;
 
         if (activeRealtimeConnection) {
+            activeRealtimeConnection.cancelResponse();
             void activeRealtimeConnection.close();
         }
 
@@ -975,7 +977,7 @@ export default function PiaCall({
                 );
 
                 setErrorMessage(
-                    "Kunne ikke hente klinikker akkurat nå.",
+                    "Kunne ikke hente klinikker akkurat nÃƒÂ¥.",
                 );
 
                 return [];
@@ -1027,7 +1029,7 @@ export default function PiaCall({
             );
 
             setErrorMessage(
-                "Noe gikk galt under klinikksøket.",
+                "Noe gikk galt under klinikksÃƒÂ¸ket.",
             );
 
             return [];
@@ -1050,7 +1052,7 @@ export default function PiaCall({
             !navigator.geolocation
         ) {
             setErrorMessage(
-                "Nettleseren din støtter ikke posisjon.",
+                "Nettleseren din stÃƒÂ¸tter ikke posisjon.",
             );
 
             return;
@@ -1100,7 +1102,7 @@ export default function PiaCall({
 
         if (!location) {
             setErrorMessage(
-                "Skriv inn et sted først.",
+                "Skriv inn et sted fÃƒÂ¸rst.",
             );
 
             return;
@@ -1286,7 +1288,7 @@ export default function PiaCall({
             isProcessingRef.current = false;
 
             const fallback =
-                "Beklager, jeg fikk et problem med samtalen. Kan du prøve igjen?";
+                "Beklager, jeg fikk et problem med samtalen. Kan du prÃƒÂ¸ve igjen?";
 
             setLastPiaText(
                 fallback,
@@ -1586,7 +1588,7 @@ export default function PiaCall({
                     setPiaState("idle");
 
                     setErrorMessage(
-                        "Jeg klarte ikke å høre hva du sa. Prøv igjen.",
+                        "Jeg klarte ikke ÃƒÂ¥ hÃƒÂ¸re hva du sa. PrÃƒÂ¸v igjen.",
                     );
                 }
             };
@@ -1685,7 +1687,6 @@ export default function PiaCall({
         }
 
         setLastUserText(trimmed);
-        setPiaState("thinking");
 
         const historyBeforeMessage = historyRef.current;
 
@@ -1715,9 +1716,7 @@ export default function PiaCall({
                 },
             ];
 
-            setLastPiaText(
-                pia.message,
-            );
+            setLastPiaText(pia.message);
 
             const requestsLocation = pia.actions.includes(
                 "request_location",
@@ -1727,83 +1726,40 @@ export default function PiaCall({
                 "search_clinics",
             );
 
-            /*
-             * LOCATION CONFIRMATION ALWAYS WINS.
-             *
-             * Even if speech transcription extracted
-             * a place name, the patient confirms the
-             * final clinic-search location in the UI.
-             */
-            if (requestsLocation) {
+            if (
+                requestsLocation &&
+                !pia.extracted.location
+            ) {
                 realtimeConnectionRef.current
-                    ?.localStream
-                    .getAudioTracks()
-                    .forEach((track) => {
-                        track.enabled = false;
-                    });
+                    ?.cancelResponse();
 
                 setCallPaused(true);
-                setShowClinics(false);
-                setShowManualLocation(false);
-                setManualLocation("");
-                setErrorMessage("");
                 setShowLocationPrompt(true);
                 setPiaState("paused");
 
                 return;
             }
 
-            /*
-             * Defensive fallback.
-             *
-             * pia-ai should normally turn clinic intent
-             * into request_location. If search_clinics
-             * slips through, still force confirmation.
-             */
-            if (shouldSearchClinics) {
+            if (
+                shouldSearchClinics &&
+                pia.extracted.location
+            ) {
                 realtimeConnectionRef.current
-                    ?.localStream
-                    .getAudioTracks()
-                    .forEach((track) => {
-                        track.enabled = false;
-                    });
+                    ?.cancelResponse();
 
-                setCallPaused(true);
-                setShowClinics(false);
-                setShowManualLocation(false);
-                setManualLocation("");
-                setErrorMessage("");
-                setShowLocationPrompt(true);
-                setPiaState("paused");
+                await searchClinicsForPia(
+                    {
+                        location: pia.extracted.location,
+                    },
+                    pia.extracted.location,
+                );
 
                 return;
             }
-
-            /*
-             * NORMAL CONVERSATION ONLY.
-             *
-             * pia-ai is the single brain.
-             * Realtime only voices the exact reply.
-             */
-            realtimeConnectionRef.current?.sendEvent({
-                type: "response.create",
-                response: {
-                    instructions:
-                        `Si nøyaktig og bare denne teksten på norsk bokmål. Ikke legg til noe og ikke endre betydning eller stedsnavn: ${
-                            JSON.stringify(pia.message)
-                        }`,
-                },
-            });
         } catch (error) {
             console.error(
                 "Realtime Pocket Dentist action error:",
                 error,
-            );
-
-            setPiaState("idle");
-
-            setErrorMessage(
-                "Pia fikk et problem. Prøv igjen.",
             );
         }
     };
@@ -2122,7 +2078,7 @@ export default function PiaCall({
         listening: "Pia lytter...",
         thinking: "Pia tenker...",
         speaking: "Pia snakker...",
-        paused: showClinics ? "Klinikker funnet" : "Samtalen er satt på pause",
+        paused: showClinics ? "Klinikker funnet" : "Samtalen er satt pÃƒÂ¥ pause",
         error: "Et problem oppstod",
     }[piaState];
 
@@ -2246,6 +2202,12 @@ export default function PiaCall({
                         </div>
                     )}
 
+                    {lastUserText && (
+                        <p className="mt-2 line-clamp-1 text-center text-xs font-medium text-[#4c748d]">
+                            Du: Ã¢â‚¬Å“{lastUserText}Ã¢â‚¬Â
+                        </p>
+                    )}
+
                     {errorMessage && (
                         <p className="mt-2 rounded-xl bg-white/80 px-4 py-2 text-center text-xs font-semibold text-red-500 shadow">
                             {errorMessage}
@@ -2271,8 +2233,8 @@ export default function PiaCall({
                                     </h3>
 
                                     <p className="mt-1 text-sm leading-6 text-[#71899b]">
-                                        Pia trenger posisjonen din for å finne
-                                        relevante tannklinikker i nærheten.
+                                        Pia trenger posisjonen din for ÃƒÂ¥ finne
+                                        relevante tannklinikker i nÃƒÂ¦rheten.
                                     </p>
                                 </div>
 
@@ -2351,7 +2313,7 @@ export default function PiaCall({
                                             void useManualLocationForPia();
                                         }
                                     }}
-                                    placeholder="By, område eller postnummer"
+                                    placeholder="By, omrÃƒÂ¥de eller postnummer"
                                     className="mt-4 h-12 w-full rounded-2xl border border-[#dce8ef] bg-[#f7fafc] px-4 text-sm font-semibold text-[#10233f] outline-none placeholder:text-[#9aacb9] focus:ring-2 focus:ring-[#1689d4]/20"
                                 />
 
@@ -2431,7 +2393,7 @@ export default function PiaCall({
                     onClick={continueTalking}
                     className="absolute bottom-[112px] left-1/2 z-[60] -translate-x-1/2 whitespace-nowrap rounded-full bg-[#1689d4] px-6 py-3 text-sm font-black text-white shadow-xl shadow-[#1689d4]/25 transition hover:bg-[#0878c2] md:bottom-28 md:left-auto md:right-[420px] md:translate-x-0"
                 >
-                    🎙️ Snakk videre med Pia
+                    Ã°Å¸Å½â„¢Ã¯Â¸Â Snakk videre med Pia
                 </button>
             )}
 
@@ -2516,12 +2478,12 @@ export default function PiaCall({
                         </span>
 
                         <span className="text-[10px] font-bold text-[#52738a] sm:text-[11px]">
-                            Legg på
+                            Legg pÃƒÂ¥
                         </span>
                     </button>
 
                     <CallButton
-                        label="Høyttaler"
+                        label="HÃƒÂ¸yttaler"
                         active={speaker}
                         onClick={() => {
                             const next = !speaker;
@@ -2651,7 +2613,7 @@ function ClinicResultsPanel({
                     className="h-11 w-full rounded-2xl border border-[#dce7ed] bg-white px-3 text-sm font-semibold text-[#10233f] outline-none focus:ring-2 focus:ring-[#1689d4]/20"
                 >
                     <option value="checkup">
-                        Undersøkelse
+                        UndersÃƒÂ¸kelse
                     </option>
 
                     <option value="emergency">
@@ -2680,11 +2642,11 @@ function ClinicResultsPanel({
                     />
 
                     <p className="mt-3 font-bold text-[#10233f]">
-                        Finner klinikker…
+                        Finner klinikkerÃ¢â‚¬Â¦
                     </p>
 
                     <p className="mt-1 text-xs text-[#7890a2]">
-                        Pia søker etter relevante alternativer nær deg.
+                        Pia sÃƒÂ¸ker etter relevante alternativer nÃƒÂ¦r deg.
                     </p>
                 </div>
             )}
@@ -2702,7 +2664,7 @@ function ClinicResultsPanel({
                     </p>
 
                     <p className="mt-1 text-sm text-[#7890a2]">
-                        Prøv et annet sted eller start en ny samtale med Pia.
+                        PrÃƒÂ¸v et annet sted eller start en ny samtale med Pia.
                     </p>
                 </div>
             )}
@@ -2825,7 +2787,7 @@ function ClinicCallCard({
                                             price.priceFrom.toLocaleString(
                                                 "nb-NO",
                                             )
-                                        }–${
+                                        }Ã¢â‚¬â€œ${
                                             price.priceTo.toLocaleString(
                                                 "nb-NO",
                                             )
@@ -2864,7 +2826,7 @@ function ClinicCallCard({
                             </p>
 
                             <p className="mt-1 font-black text-[#10233f]">
-                                Henter pris…
+                                Henter prisÃ¢â‚¬Â¦
                             </p>
                         </div>
                     </div>

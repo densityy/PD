@@ -1,18 +1,8 @@
-import {
-    Suspense,
-    useEffect,
-    useMemo,
-    useRef,
-} from "react";
-import {
-    Canvas,
-    useFrame,
-} from "@react-three/fiber";
-import {
-    Html,
-    useGLTF,
-} from "@react-three/drei";
+import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { Html, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
+import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 export type Pia3DState =
     | "idle"
@@ -31,35 +21,24 @@ interface PiaModelProps {
     state: Pia3DState;
 }
 
-type BoneSnapshot = {
-    x: number;
-    y: number;
-    z: number;
-};
-
 const MODEL_URL = "/models/Pia.glb";
 
-/*
- * We normalize Pia to a predictable height, then deliberately
- * frame only the upper body. The previous version used automatic
- * Bounds fitting, which tried to keep her entire body visible.
- */
 const NORMALIZED_FULL_HEIGHT = 4;
 const PORTRAIT_MODEL_Y = -0.78;
 
-function damp(
-    current: number,
-    target: number,
-    speed: number,
-    delta: number,
-) {
-    return THREE.MathUtils.damp(
-        current,
-        target,
-        speed,
-        delta,
-    );
-}
+/*
+ * Tripo animation mapping confirmed visually:
+ *
+ * 0 = looking around
+ * 1 = waiting
+ * 2 = idle
+ * 3 = hand gesture
+ * 4 = hand on waist / looking up and sideways
+ */
+const CLIP_WAITING = 1;
+const CLIP_IDLE = 2;
+const CLIP_HAND_GESTURE = 3;
+const CLIP_THINKING = 4;
 
 function LoadingPia() {
     return (
@@ -78,621 +57,442 @@ function PiaModel({
         MODEL_URL,
     );
 
-    const animatedRootRef =
-        useRef<THREE.Group>(null);
-
     /*
-     * Calculate Pia's real GLB dimensions once and normalize the
-     * model. This makes the camera framing stable even if the GLB
-     * was exported in unusual units.
+     * Clone the cached GLTF scene so each Pia mount gets
+     * its own skinned skeleton and animation state.
      */
-    const normalization =
-        useMemo(() => {
-            gltf.scene.updateWorldMatrix(
-                true,
-                true,
-            );
+    const scene = useMemo(
+        () => clone(gltf.scene),
+        [gltf.scene],
+    );
 
-            const box =
-                new THREE.Box3().setFromObject(
-                    gltf.scene,
-                );
+    const mixerRef = useRef<THREE.AnimationMixer | null>(
+        null,
+    );
 
-            const size =
-                new THREE.Vector3();
+    const actionsRef = useRef<THREE.AnimationAction[]>(
+        [],
+    );
 
-            const center =
-                new THREE.Vector3();
+    const activeActionRef = useRef<THREE.AnimationAction | null>(
+        null,
+    );
 
-            box.getSize(size);
-            box.getCenter(center);
+    const currentStateRef = useRef<Pia3DState>(
+        state,
+    );
 
-            const height =
-                Math.max(
-                    size.y,
-                    0.001,
-                );
+    const speakingTimerRef = useRef<number | null>(
+        null,
+    );
 
-            return {
-                scale:
-                    NORMALIZED_FULL_HEIGHT /
-                    height,
+    const gestureRunningRef = useRef(false);
 
-                center,
-            };
-        }, [gltf.scene]);
-
-    /*
-     * These names come from the actual Tripo skeleton in Pia.glb.
-     */
-    const bones = useMemo(() => {
-        const getBone = (
-            name: string,
-        ) =>
-            gltf.scene.getObjectByName(
-                name,
-            ) as
-                | THREE.Bone
-                | undefined;
-
-        return {
-            head:
-                getBone("Head"),
-
-            neck1:
-                getBone(
-                    "NeckTwist01",
-                ),
-
-            neck2:
-                getBone(
-                    "NeckTwist02",
-                ),
-
-            spine1:
-                getBone(
-                    "Spine01",
-                ),
-
-            spine2:
-                getBone(
-                    "Spine02",
-                ),
-
-            waist:
-                getBone("Waist"),
-
-            leftClavicle:
-                getBone(
-                    "L_Clavicle",
-                ),
-
-            rightClavicle:
-                getBone(
-                    "R_Clavicle",
-                ),
-
-            leftUpperArm:
-                getBone(
-                    "L_Upperarm",
-                ),
-
-            rightUpperArm:
-                getBone(
-                    "R_Upperarm",
-                ),
-        };
-    }, [gltf.scene]);
-
-    const baseRotations =
-        useRef<
-            Map<
-                THREE.Object3D,
-                BoneSnapshot
-            >
-        >(
-            new Map(),
+    const normalization = useMemo(() => {
+        scene.updateWorldMatrix(
+            true,
+            true,
         );
 
-    useEffect(() => {
-        const objects = [
-            bones.head,
-            bones.neck1,
-            bones.neck2,
-            bones.spine1,
-            bones.spine2,
-            bones.waist,
-            bones.leftClavicle,
-            bones.rightClavicle,
-            bones.leftUpperArm,
-            bones.rightUpperArm,
-        ].filter(
-            Boolean,
-        ) as THREE.Object3D[];
+        const box = new THREE.Box3().setFromObject(
+            scene,
+        );
 
-        const snapshots =
-            new Map<
-                THREE.Object3D,
-                BoneSnapshot
-            >();
+        const size = new THREE.Vector3();
 
-        for (
-            const object of objects
+        const center = new THREE.Vector3();
+
+        box.getSize(size);
+        box.getCenter(center);
+
+        const height = Math.max(
+            size.y,
+            0.001,
+        );
+
+        return {
+            scale: NORMALIZED_FULL_HEIGHT /
+                height,
+            center,
+        };
+    }, [scene]);
+
+    const clearSpeakingTimer = () => {
+        if (
+            speakingTimerRef.current !==
+                null
         ) {
-            snapshots.set(
-                object,
-                {
-                    x:
-                        object
-                            .rotation.x,
+            window.clearTimeout(
+                speakingTimerRef.current,
+            );
 
-                    y:
-                        object
-                            .rotation.y,
+            speakingTimerRef.current = null;
+        }
+    };
 
-                    z:
-                        object
-                            .rotation.z,
-                },
+    const crossfadeTo = (
+        action:
+            | THREE.AnimationAction
+            | undefined,
+        fadeSeconds = 0.35,
+        reset = true,
+    ) => {
+        if (!action) {
+            return;
+        }
+
+        const current = activeActionRef.current;
+
+        if (
+            current === action &&
+            action.isRunning()
+        ) {
+            return;
+        }
+
+        if (
+            current &&
+            current !== action
+        ) {
+            current.fadeOut(
+                fadeSeconds,
             );
         }
 
-        baseRotations.current =
-            snapshots;
-    }, [bones]);
+        action.enabled = true;
+        action.setEffectiveWeight(1);
+        action.setEffectiveTimeScale(1);
+
+        if (reset) {
+            action.reset();
+        }
+
+        action
+            .fadeIn(
+                fadeSeconds,
+            )
+            .play();
+
+        activeActionRef.current = action;
+    };
+
+    const playLoop = (
+        clipIndex: number,
+        fadeSeconds = 0.35,
+        timeScale = 1,
+    ) => {
+        const action = actionsRef.current[
+            clipIndex
+        ];
+
+        if (!action) {
+            return;
+        }
+
+        action.setLoop(
+            THREE.LoopRepeat,
+            Infinity,
+        );
+
+        action.clampWhenFinished = false;
+
+        action.setEffectiveTimeScale(
+            timeScale,
+        );
+
+        crossfadeTo(
+            action,
+            fadeSeconds,
+            true,
+        );
+
+        action.setEffectiveTimeScale(
+            timeScale,
+        );
+    };
+
+    const playSpeakingBase = () => {
+        /*
+         * Speaking uses the clean idle animation as a base.
+         * Authored hand gestures are inserted occasionally
+         * rather than looping constantly.
+         */
+        playLoop(
+            CLIP_IDLE,
+            0.3,
+            1.02,
+        );
+    };
+
+    const playSpeakingGesture = () => {
+        if (
+            currentStateRef.current !==
+                "speaking" ||
+            gestureRunningRef.current
+        ) {
+            return;
+        }
+
+        const gesture = actionsRef.current[
+            CLIP_HAND_GESTURE
+        ];
+
+        if (!gesture) {
+            return;
+        }
+
+        gestureRunningRef.current = true;
+
+        gesture.setLoop(
+            THREE.LoopOnce,
+            1,
+        );
+
+        gesture.clampWhenFinished = true;
+
+        gesture.setEffectiveTimeScale(
+            0.95,
+        );
+
+        crossfadeTo(
+            gesture,
+            0.25,
+            true,
+        );
+    };
+
+    const scheduleSpeakingGesture = () => {
+        clearSpeakingTimer();
+
+        if (
+            currentStateRef.current !==
+                "speaking"
+        ) {
+            return;
+        }
+
+        /*
+         * Irregular spacing makes repeated gestures
+         * feel less mechanical.
+         */
+        const delay = 5500 +
+            Math.random() *
+                2500;
+
+        speakingTimerRef.current = window.setTimeout(
+            () => {
+                playSpeakingGesture();
+            },
+            delay,
+        );
+    };
+
+    useEffect(() => {
+        if (
+            !gltf.animations.length
+        ) {
+            console.warn(
+                "Pia.glb contains no animation clips.",
+            );
+
+            return;
+        }
+
+        const mixer = new THREE.AnimationMixer(
+            scene,
+        );
+
+        mixerRef.current = mixer;
+
+        const actions = gltf.animations.map(
+            (clip) => {
+                const action = mixer.clipAction(
+                    clip,
+                );
+
+                action.enabled = true;
+
+                return action;
+            },
+        );
+
+        actionsRef.current = actions;
+
+        /*
+         * Start in a stable neutral animation.
+         */
+        playLoop(
+            CLIP_IDLE,
+            0,
+            1,
+        );
+
+        const handleFinished = (
+            event: {
+                action: THREE.AnimationAction;
+            },
+        ) => {
+            const gesture = actionsRef.current[
+                CLIP_HAND_GESTURE
+            ];
+
+            if (
+                event.action ===
+                    gesture
+            ) {
+                gestureRunningRef.current = false;
+
+                if (
+                    currentStateRef.current ===
+                        "speaking"
+                ) {
+                    playSpeakingBase();
+                    scheduleSpeakingGesture();
+                }
+            }
+        };
+
+        mixer.addEventListener(
+            "finished",
+            handleFinished,
+        );
+
+        return () => {
+            clearSpeakingTimer();
+
+            mixer.removeEventListener(
+                "finished",
+                handleFinished,
+            );
+
+            mixer.stopAllAction();
+
+            for (
+                const action of actions
+            ) {
+                action.stop();
+            }
+
+            mixer.uncacheRoot(
+                scene,
+            );
+
+            actionsRef.current = [];
+
+            activeActionRef.current = null;
+
+            mixerRef.current = null;
+
+            gestureRunningRef.current = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        scene,
+        gltf.animations,
+    ]);
+
+    useEffect(() => {
+        currentStateRef.current = state;
+
+        clearSpeakingTimer();
+
+        gestureRunningRef.current = false;
+
+        switch (state) {
+            case "listening": {
+                /*
+                 * Waiting is the best attentive/listening clip.
+                 * Slow it down slightly so it feels calmer.
+                 */
+                playLoop(
+                    CLIP_WAITING,
+                    0.35,
+                    0.82,
+                );
+
+                break;
+            }
+
+            case "thinking": {
+                /*
+                 * Distinctive thinking pose.
+                 */
+                playLoop(
+                    CLIP_THINKING,
+                    0.4,
+                    0.72,
+                );
+
+                break;
+            }
+
+            case "speaking": {
+                playSpeakingBase();
+
+                /*
+                 * Let Pia establish speech first,
+                 * then make one early gesture.
+                 */
+                speakingTimerRef.current = window.setTimeout(
+                    () => {
+                        playSpeakingGesture();
+                    },
+                    1800,
+                );
+
+                break;
+            }
+
+            case "error": {
+                playLoop(
+                    CLIP_WAITING,
+                    0.35,
+                    0.72,
+                );
+
+                break;
+            }
+
+            case "paused": {
+                playLoop(
+                    CLIP_IDLE,
+                    0.35,
+                    0.88,
+                );
+
+                break;
+            }
+
+            case "idle":
+            default: {
+                playLoop(
+                    CLIP_IDLE,
+                    0.35,
+                    0.95,
+                );
+
+                break;
+            }
+        }
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [state]);
 
     useFrame(
         (
-            frameState,
+            _,
             delta,
         ) => {
-            const root =
-                animatedRootRef.current;
-
-            if (!root) {
-                return;
-            }
-
-            const t =
-                frameState.clock
-                    .elapsedTime;
-
-            const breathing =
-                Math.sin(
-                    t * 1.7,
-                );
-
-            const slowSway =
-                Math.sin(
-                    t * 0.72,
-                );
-
-            const speechCadence =
-                Math.sin(
-                    t * 5.8,
-                );
-
-            let headX = 0;
-            let headY = 0;
-            let headZ = 0;
-
-            let neckX = 0;
-            let neckY = 0;
-
-            let spineX = 0;
-            let spineZ = 0;
-
-            let shoulderLift = 0;
-            let leftArmZ = 0;
-            let rightArmZ = 0;
-
-            let targetRootX = 0;
-            let targetRootY =
-                PORTRAIT_MODEL_Y;
-
-            let targetRootZ = 0;
-            let targetRootYRotation = 0;
-
-            switch (state) {
-                case "listening": {
-                    /*
-                     * Attentive without moving toward the
-                     * camera: tiny torso tilt, head tilt,
-                     * shoulders relaxed and visible.
-                     */
-                    headX =
-                        -0.018;
-
-                    headY =
-                        Math.sin(
-                            t * 0.8,
-                        ) *
-                        0.016;
-
-                    headZ =
-                        0.045 +
-                        slowSway *
-                            0.012;
-
-                    neckY =
-                        slowSway *
-                        0.008;
-
-                    spineZ =
-                        slowSway *
-                        0.014;
-
-                    shoulderLift =
-                        breathing *
-                        0.009;
-
-                    targetRootX =
-                        slowSway *
-                        0.012;
-
-                    targetRootZ =
-                        slowSway *
-                        0.006;
-
-                    break;
-                }
-
-                case "thinking": {
-                    /*
-                     * Slower asymmetric pose. This should
-                     * visibly read as a different state.
-                     */
-                    headY =
-                        0.075 +
-                        slowSway *
-                            0.025;
-
-                    headZ =
-                        -0.055;
-
-                    headX =
-                        Math.sin(
-                            t * 0.55,
-                        ) *
-                        0.01;
-
-                    neckY =
-                        0.022;
-
-                    spineZ =
-                        -0.018 +
-                        slowSway *
-                            0.012;
-
-                    shoulderLift =
-                        breathing *
-                        0.005;
-
-                    targetRootX =
-                        -0.012 +
-                        slowSway *
-                        0.008;
-
-                    targetRootZ =
-                        -0.008;
-
-                    targetRootYRotation =
-                        0.018;
-
-                    break;
-                }
-
-                case "speaking": {
-                    /*
-                     * Conversational body language:
-                     * head cadence, torso sway, shoulder
-                     * movement and tiny upper-arm motion.
-                     */
-                    headX =
-                        speechCadence *
-                        0.012 +
-                        Math.sin(
-                            t * 1.2,
-                        ) *
-                        0.008;
-
-                    headY =
-                        Math.sin(
-                            t * 1.55,
-                        ) *
-                        0.026;
-
-                    headZ =
-                        Math.sin(
-                            t * 1.05,
-                        ) *
-                        0.018;
-
-                    neckY =
-                        Math.sin(
-                            t * 1.2,
-                        ) *
-                        0.008;
-
-                    spineZ =
-                        Math.sin(
-                            t * 0.9,
-                        ) *
-                        0.02;
-
-                    shoulderLift =
-                        breathing *
-                        0.014;
-
-                    leftArmZ =
-                        Math.sin(
-                            t * 1.1,
-                        ) *
-                        0.008;
-
-                    rightArmZ =
-                        -Math.sin(
-                            t * 1.1,
-                        ) *
-                        0.008;
-
-                    targetRootX =
-                        Math.sin(
-                            t * 0.85,
-                        ) *
-                        0.014;
-
-                    targetRootZ =
-                        Math.sin(
-                            t * 0.75,
-                        ) *
-                        0.009;
-
-                    targetRootYRotation =
-                        Math.sin(
-                            t * 0.7,
-                        ) *
-                        0.012;
-
-                    break;
-                }
-
-                case "paused": {
-                    headY =
-                        slowSway *
-                        0.01;
-
-                    headZ =
-                        slowSway *
-                        0.008;
-
-                    spineZ =
-                        slowSway *
-                        0.005;
-
-                    shoulderLift =
-                        breathing *
-                        0.004;
-
-                    break;
-                }
-
-                case "error": {
-                    headZ =
-                        -0.045;
-
-                    headX =
-                        0.022;
-
-                    spineZ =
-                        -0.012;
-
-                    break;
-                }
-
-                case "idle":
-                default: {
-                    /*
-                     * Visible idle life without forward/back
-                     * movement: breathing, shoulder motion,
-                     * head sway and a small torso sway.
-                     */
-                    headY =
-                        slowSway *
-                        0.024;
-
-                    headZ =
-                        Math.sin(
-                            t * 0.5,
-                        ) *
-                        0.014;
-
-                    headX =
-                        Math.sin(
-                            t * 0.42,
-                        ) *
-                        0.005;
-
-                    spineZ =
-                        slowSway *
-                        0.009;
-
-                    shoulderLift =
-                        breathing *
-                        0.009;
-
-                    targetRootX =
-                        slowSway *
-                        0.008;
-
-                    targetRootZ =
-                        slowSway *
-                        0.004;
-
-                    targetRootY +=
-                        breathing *
-                        0.002;
-
-                    break;
-                }
-            }
-
-            root.position.x =
-                damp(
-                    root.position.x,
-                    targetRootX,
-                    3.5,
+            /*
+             * IMPORTANT:
+             * We let AnimationMixer fully own the skeleton.
+             * Do not add cumulative bone rotations here.
+             */
+            mixerRef.current?.update(
+                Math.min(
                     delta,
-                );
-
-            root.position.y =
-                damp(
-                    root.position.y,
-                    targetRootY,
-                    3.5,
-                    delta,
-                );
-
-            root.rotation.z =
-                damp(
-                    root.rotation.z,
-                    targetRootZ,
-                    3.5,
-                    delta,
-                );
-
-            root.rotation.y =
-                damp(
-                    root.rotation.y,
-                    targetRootYRotation,
-                    3.5,
-                    delta,
-                );
-
-            const animateBone = (
-                bone:
-                    | THREE.Object3D
-                    | undefined,
-
-                x: number,
-                y: number,
-                z: number,
-
-                speed = 5,
-            ) => {
-                if (!bone) {
-                    return;
-                }
-
-                const base =
-                    baseRotations
-                        .current
-                        .get(
-                            bone,
-                        );
-
-                if (!base) {
-                    return;
-                }
-
-                bone.rotation.x =
-                    damp(
-                        bone
-                            .rotation.x,
-                        base.x + x,
-                        speed,
-                        delta,
-                    );
-
-                bone.rotation.y =
-                    damp(
-                        bone
-                            .rotation.y,
-                        base.y + y,
-                        speed,
-                        delta,
-                    );
-
-                bone.rotation.z =
-                    damp(
-                        bone
-                            .rotation.z,
-                        base.z + z,
-                        speed,
-                        delta,
-                    );
-            };
-
-            animateBone(
-                bones.head,
-                headX,
-                headY,
-                headZ,
-                5.5,
-            );
-
-            animateBone(
-                bones.neck1,
-                neckX,
-                neckY,
-                0,
-                5,
-            );
-
-            animateBone(
-                bones.neck2,
-                neckX * 0.45,
-                neckY * 0.55,
-                headZ * 0.25,
-                5,
-            );
-
-            animateBone(
-                bones.spine1,
-                0,
-                0,
-                spineZ * 0.55,
-                4,
-            );
-
-            animateBone(
-                bones.spine2,
-                0,
-                0,
-                spineZ,
-                4,
-            );
-
-            animateBone(
-                bones.leftClavicle,
-                0,
-                0,
-                shoulderLift,
-                3,
-            );
-
-            animateBone(
-                bones.rightClavicle,
-                0,
-                0,
-                -shoulderLift,
-                3,
-            );
-
-            animateBone(
-                bones.leftUpperArm,
-                0,
-                0,
-                leftArmZ,
-                3.5,
-            );
-
-            animateBone(
-                bones.rightUpperArm,
-                0,
-                0,
-                rightArmZ,
-                3.5,
+                    0.05,
+                ),
             );
         },
     );
@@ -704,9 +504,6 @@ function PiaModel({
 
     return (
         <group
-            ref={
-                animatedRootRef
-            }
             position={[
                 0,
                 PORTRAIT_MODEL_Y,
@@ -721,9 +518,7 @@ function PiaModel({
                 ]}
             >
                 <primitive
-                    object={
-                        gltf.scene
-                    }
+                    object={scene}
                     position={[
                         -center.x,
                         -center.y,
@@ -749,18 +544,9 @@ export default function Pia3D({
                     1.6,
                 ]}
                 camera={{
-                    /*
-                     * Fixed portrait camera.
-                     * Lower FOV gives Pia a flattering
-                     * video-call portrait rather than a
-                     * distorted game-camera look.
-                     */
                     fov: 24,
-
                     near: 0.01,
-
                     far: 100,
-
                     position: [
                         0,
                         0.15,
@@ -770,22 +556,17 @@ export default function Pia3D({
                 gl={{
                     antialias: true,
                     alpha: true,
-
-                    powerPreference:
-                        "high-performance",
+                    powerPreference: "high-performance",
                 }}
                 onCreated={({
                     gl,
                     camera,
                 }) => {
-                    gl.outputColorSpace =
-                        THREE.SRGBColorSpace;
+                    gl.outputColorSpace = THREE.SRGBColorSpace;
 
-                    gl.toneMapping =
-                        THREE.ACESFilmicToneMapping;
+                    gl.toneMapping = THREE.ACESFilmicToneMapping;
 
-                    gl.toneMappingExposure =
-                        1.05;
+                    gl.toneMappingExposure = 1.05;
 
                     camera.lookAt(
                         0,
@@ -823,14 +604,10 @@ export default function Pia3D({
                 />
 
                 <Suspense
-                    fallback={
-                        <LoadingPia />
-                    }
+                    fallback={<LoadingPia />}
                 >
                     <PiaModel
-                        state={
-                            state
-                        }
+                        state={state}
                     />
                 </Suspense>
             </Canvas>

@@ -60,18 +60,13 @@ Målet ditt er at samtalen skal føles som en ekte samtale med en dyktig resepsj
 ikke som et skjema eller en rigid spørsmålsliste.
 
 SPRÅK:
-- Standardspråket ditt er norsk bokmål.
-- Oppdag språket i pasientens nyeste meningsfulle melding.
-- Svar ALLTID på samme språk som pasienten bruker i den nyeste meldingen.
-- Hvis pasienten snakker eller skriver norsk, svar på norsk bokmål.
-- Hvis pasienten snakker eller skriver engelsk, svar på engelsk.
-- Hvis pasienten bruker et annet språk, svar på det språket så godt du kan.
-- Hvis pasienten bytter språk under samtalen, bytt til samme språk.
-- Ikke bytt språk på eget initiativ.
-- Ikke oversett pasientens melding med mindre pasienten ber om det.
-- Hvis språket er uklart eller meldingen er svært kort, behold språket som allerede brukes i samtalen.
-- Hvis du fortsatt er usikker, bruk norsk bokmål.
-- Klinikkdata, stedsnavn og egennavn skal beholdes korrekt selv om samtalen foregår på et annet språk.
+- Standardspråket er norsk bokmål.
+- I talesamtaler skal du IKKE bytte språk bare fordi transkripsjonen inneholder engelske ord eller ser engelsk ut.
+- Fortsett på norsk bokmål med mindre pasienten eksplisitt ber deg snakke et annet språk, for eksempel "snakk engelsk" eller "speak English".
+- Hvis pasienten eksplisitt ber om et annet språk, kan du bytte.
+- Et stedsnavn, navn, merkenavn eller enkeltord skal aldri utløse språkbytte.
+- Ikke bytt til svensk eller dansk.
+- Hvis du er usikker: bruk norsk bokmål.
 
 SAMTALESTIL:
 - Vær varm, naturlig, rolig og profesjonell.
@@ -110,47 +105,41 @@ BEHANDLINGSTYPER:
 
 KLINIKKSØK OG POSISJON:
 
-- Smertegrad, varighet og alder er IKKE obligatoriske for å søke etter klinikker.
-- Hvis sted og tannproblem allerede er kjent, skal manglende smertegrad IKKE hindre klinikksøk.
-- Spør om smertegrad bare dersom det er nødvendig for sikkerhetsvurdering eller triage.
+- Hovedmålet ditt er å hjelpe pasienten videre til en relevant tannklinikk når det er naturlig.
+- Ikke bli værende i tilfeldig småprat eller lange generelle samtaler. Hold samtalen tannhelserelatert og fremdriftsorientert.
+- Hvis pasienten beskriver et tannproblem, still maksimalt ett nødvendig og relevant oppfølgingsspørsmål om gangen. Når du har nok informasjon til å hjelpe videre, led naturlig mot klinikksøk.
+- Hvis pasienten uttrykker at de trenger tannlege, klinikk, behandling, time, pris eller hjelp til å finne noen, skal dette behandles som klinikksøk-intent.
+- Eksempler på klinikksøk-intent: "finn en klinikk", "finn meg en tannlege", "jeg trenger en tannlege", "tannlege nær meg", "hvor kan jeg få rotfylling", "find me a clinic", "find a dentist".
+- Du skal ALDRI be pasienten gå til en annen Pocket Dentist-side eller si at de kan bruke "Finn klinikk". DU ER inngangen til klinikksøket.
+- Du skal ALDRI be pasienten Google, søke på Google Maps, søke på nettet eller finne klinikker selv.
+- Du skal ALDRI anbefale at pasienten bruker en ekstern søkemotor for å finne tannlege.
+- Når pasienten vil finne tannlege eller klinikk, skal Pocket Dentist håndtere søket via request_location.
 
-- Når pasienten har et konkret tannhelsebehov, men sted IKKE er kjent:
+VIKTIG POSISJONSREGEL:
+- Før ALLE klinikksøk skal frontend alltid be pasienten bekrefte posisjon.
+- Selv om pasienten allerede har sagt eller skrevet et stedsnavn som Jessheim, Oslo eller Kløfta i samtalen, skal du IKKE starte klinikksøk direkte.
+- Ikke stol på muntlig transkribert stedsnavn som endelig søkeposisjon.
+- Når klinikksøk skal utføres:
   1. sett extracted.wantsClinicSearch til false
   2. legg til "request_location" i actions
-  3. IKKE legg til "search_clinics" ennå
-  4. IKKE be pasienten om å si stedsnavnet muntlig
-  5. si kun kort og naturlig at Pia trenger posisjonen for å finne relevante klinikker
-
-- Når "request_location" brukes, vil Pocket Dentist-grensesnittet vise pasienten valg som:
+  3. IKKE legg til "search_clinics"
+  4. svar kort at Pia trenger at pasienten bekrefter posisjonen
+- Frontend viser deretter:
   - "Bruk min posisjon"
   - "Skriv inn sted"
-- Ikke be pasienten om å gjenta posisjonen muntlig når frontend kan hente den direkte.
-
-- Når både sted og et konkret tannhelsebehov er kjent:
-  1. sett extracted.wantsClinicSearch til true
-  2. legg til "search_clinics" i actions
-  3. IKKE legg til "request_location"
-
-- Eksempel:
-  Pasient: "Jeg har tannverk."
-  Sted er ikke kjent.
-  Da skal du legge til "request_location" i actions.
-  Du kan si noe kort som at du trenger posisjonen for å finne klinikker i nærheten.
-  Du skal IKKE spørre pasienten om å si hvor de befinner seg.
-
-- Eksempel:
-  Tidligere informasjon: pasienten har tannverk.
-  Frontend eller tidligere samtale har gitt sted = Jessheim.
-  Da skal du sette wantsClinicSearch=true og legge til "search_clinics".
-  Ikke spør om smertegrad først.
-
-- Bruk hele samtalehistorikken når du avgjør om sted og behandlingsbehov er kjent.
-- Ikke mist tannproblemet fordi den nyeste meldingen bare inneholder annen informasjon.
-- Ikke spør om sted på nytt dersom sted allerede finnes i samtalen eller er gitt av frontend.
-- Ikke spør om lov til å søke dersom pasienten tydelig trenger eller ønsker tannlege.
-- Når klinikksøk skal utføres, si naturlig og kort at du finner relevante alternativer.
+- Når pasienten velger ett av disse alternativene, utfører frontend selve klinikksøket uten at du skal spørre på nytt.
+- Ikke be pasienten si posisjonen muntlig når posisjonsvelgeren kan brukes.
+- Ikke anta Oslo eller noe annet sted.
 - Ikke finn på klinikknavn, priser, vurderinger, adresser eller åpningstider.
-- Faktiske klinikkdata skal komme fra Pocket Dentist sitt klinikksøk.
+- Faktiske klinikkdata skal alltid komme fra Pocket Dentist sitt klinikksøk.
+
+SAMTALEFREMDIFT:
+- Ved vanlig tannhelseprat skal du forsøke å hjelpe pasienten mot et konkret neste steg.
+- Dersom pasienten har et behandlingsbehov og det ikke er behov for akuttveiledning, er et naturlig neste steg ofte å tilby å finne en klinikk.
+- Ikke press pasienten, men ikke avslutt med generisk informasjon når et klinikksøk er et åpenbart nyttig neste steg.
+- Hvis pasienten bare småprater om noe som ikke er relevant for tannhelse, svar kort og styr vennlig tilbake til hva Pia kan hjelpe med innen tannhelse.
+- Smertegrad, varighet og alder er IKKE obligatoriske for å åpne klinikksøk.
+- Spør om smertegrad bare når det faktisk er nødvendig for sikkerhetsvurdering eller triage.
 
 PRIS:
 
@@ -314,6 +303,136 @@ function extractOutputText(responseBody: {
     ?.text;
 }
 
+
+function normalizeIntentText(value: string) {
+  return value
+    .toLocaleLowerCase('nb-NO')
+    .replace(/[.,!?;:()[\]{}"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function containsClinicIntent(value: string) {
+  const text = normalizeIntentText(value);
+
+  const clinicWords = [
+    'klinikk',
+    'tannklinikk',
+    'tannlege',
+    'dentist',
+    'clinic',
+    'dental clinic',
+  ];
+
+  const intentWords = [
+    'finn',
+    'finne',
+    'trenger',
+    'trenge',
+    'ønsker',
+    'ønske',
+    'vil ha',
+    'hjelp meg',
+    'hjelpe meg',
+    'hvor',
+    'nær meg',
+    'find',
+    'need',
+    'want',
+    'looking for',
+    'help me',
+    'where',
+    'near me',
+  ];
+
+  const hasClinicWord = clinicWords.some(
+    (word) => text.includes(word),
+  );
+
+  const hasIntentWord = intentWords.some(
+    (word) => text.includes(word),
+  );
+
+  if (hasClinicWord && hasIntentWord) {
+    return true;
+  }
+
+  const explicitPhrases = [
+    'bestill time',
+    'bestille time',
+    'book time',
+    'book appointment',
+    'get an appointment',
+    'where can i get',
+    'hvor kan jeg få',
+    'hvor kan jeg gå',
+  ];
+
+  return explicitPhrases.some(
+    (phrase) => text.includes(phrase),
+  );
+}
+
+function hasRecentClinicIntent(
+  message: string,
+  history: ChatMessage[],
+) {
+  if (containsClinicIntent(message)) {
+    return true;
+  }
+
+  return history
+    .slice(-8)
+    .filter((item) => item.sender === 'user')
+    .some((item) => containsClinicIntent(item.text));
+}
+
+function enforceClinicSearchFlow(
+  parsed: PiaStructuredResponse,
+  clinicIntent: boolean,
+) {
+  const modelIndicatesClinicIntent =
+    parsed.extracted.wantsClinicSearch ||
+    parsed.actions.includes('search_clinics') ||
+    parsed.actions.includes('request_location');
+
+  const shouldEnterClinicFlow =
+    clinicIntent || modelIndicatesClinicIntent;
+
+  if (
+    !shouldEnterClinicFlow ||
+    parsed.extracted.emergencyWarning
+  ) {
+    return parsed;
+  }
+
+  /*
+   * ALWAYS confirm final search location in the frontend.
+   * Spoken/extracted locations are context only.
+   */
+  const otherActions = parsed.actions.filter(
+    (action) =>
+      action !== 'search_clinics' &&
+      action !== 'request_location' &&
+      action !== 'none',
+  );
+
+  parsed.extracted.wantsClinicSearch = false;
+  parsed.actions = [
+    'request_location',
+    ...otherActions,
+  ];
+
+  /*
+   * Never allow Pia to send a patient away to Google,
+   * Maps, another search engine, or another Pocket Dentist page.
+   */
+  parsed.message =
+    'Klart — bekreft posisjonen din, så finner jeg relevante tannklinikker i nærheten.';
+
+  return parsed;
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', {
@@ -375,6 +494,11 @@ Deno.serve(async (request: Request) => {
         role: item.sender === 'user' ? 'user' : 'assistant',
         content: item.text.slice(0, 2000),
       }));
+
+    const clinicIntent = hasRecentClinicIntent(
+      message,
+      body.history ?? [],
+    );
 
     // Identify caller for rate limiting.
     const forwardedFor =
@@ -509,6 +633,11 @@ Deno.serve(async (request: Request) => {
         502,
       );
     }
+
+    parsed = enforceClinicSearchFlow(
+      parsed,
+      clinicIntent,
+    );
 
     return jsonResponse(parsed);
   } catch (error) {

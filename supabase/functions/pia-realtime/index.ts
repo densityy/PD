@@ -1,5 +1,3 @@
-
-
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers":
@@ -8,34 +6,18 @@ const corsHeaders = {
 };
 
 const PIA_REALTIME_INSTRUCTIONS = `
-Du er Pia, den digitale tannlegeresepsjonisten for PocketDentist.no.
+Du er kun talemotoren til Pia for PocketDentist.no.
 
-PERSONLIGHET
-- Du er varm, rolig, empatisk, vennlig og profesjonell.
-- Du snakker naturlig og kortfattet, som en ekte norsk tannlegeresepsjonist.
-- Du er trygg og tydelig uten å høres robotisk, teatralsk eller kommersiell ut.
-- Du stiller normalt bare ett relevant spørsmål om gangen.
-- Du stiller ikke medisinske diagnoser.
-
-SPRÅK
+VIKTIG:
+- Du skal aldri starte et svar på egen hånd.
+- Pocket Dentist sin pia-ai-funksjon bestemmer nøyaktig hva Pia skal si.
+- Når klienten sender response.create med en konkret tekst som skal sies, skal du bare si den teksten.
+- Ikke legg til ekstra informasjon.
+- Ikke endre stedsnavn, klinikknavn eller betydning.
 - Standardspråket er norsk bokmål.
-- Fortsett på norsk bokmål med mindre brukeren tydelig ber om et annet språk,
-  eller tydelig og vedvarende kommuniserer på et annet språk.
-- Ikke bytt språk på grunn av enkeltord, navn, merkenavn, adresser,
-  tannlegeuttrykk eller engelske låneord.
-- Dersom skandinavisk tale er tvetydig, behold norsk bokmål.
-- Ikke bytt til svensk eller dansk bare fordi talegjenkjenningen tolker
-  enkelte ord som svensk eller dansk.
-- Dersom du er usikker på språk, behold gjeldende språk.
-- Et eksplisitt ønske som "snakk engelsk" skal bytte språk.
-- Et eksplisitt ønske om å gå tilbake til norsk skal bytte tilbake til norsk.
-- Behold samme Pia-personlighet uansett språk.
-
-TALESAMTALE
-- Dette er en live telefonsamtale.
-- Svar naturlig og relativt kort.
-- Ikke les opp lange lister dersom et kort svar er nok.
-- La brukeren avbryte deg naturlig.
+- Ikke bytt til engelsk, svensk eller dansk på eget initiativ.
+- Bytt språk bare dersom teksten du eksplisitt blir bedt om å si faktisk er på et annet språk.
+- Snakk varmt, rolig og naturlig, som en norsk tannlegeresepsjonist.
 `;
 
 Deno.serve(async (req) => {
@@ -47,10 +29,13 @@ Deno.serve(async (req) => {
     }
 
     if (req.method !== "POST") {
-        return new Response("Method not allowed", {
-            status: 405,
-            headers: corsHeaders,
-        });
+        return new Response(
+            "Method not allowed",
+            {
+                status: 405,
+                headers: corsHeaders,
+            },
+        );
     }
 
     try {
@@ -92,8 +77,12 @@ Deno.serve(async (req) => {
             req.headers.get("content-type") ?? "";
 
         if (
-            !contentType.includes("application/sdp") &&
-            !contentType.includes("text/plain")
+            !contentType.includes(
+                "application/sdp",
+            ) &&
+            !contentType.includes(
+                "text/plain",
+            )
         ) {
             return new Response(
                 "Expected SDP.",
@@ -130,17 +119,36 @@ Deno.serve(async (req) => {
             audio: {
                 input: {
                     transcription: {
-                        model: "gpt-4o-mini-transcribe",
+                        model:
+                            "gpt-4o-mini-transcribe",
+
                         language: "nb",
+
+                        prompt:
+                            "Norsk bokmål. Pocket Dentist. Tannlege, tannklinikk, tannverk, rotfylling, tannkrone, undersøkelse, akutt, Jessheim, Kløfta, Lillestrøm, Oslo, Gardermoen, Ullensaker.",
                     },
 
                     turn_detection: {
                         type: "server_vad",
+
                         threshold: 0.5,
+
                         prefix_padding_ms: 300,
-                        silence_duration_ms: 650,
-                        create_response: true,
-                        interrupt_response: true,
+
+                        silence_duration_ms: 700,
+
+                        /*
+                         * Realtime detects/transcribes turns,
+                         * but NEVER generates its own answer.
+                         */
+                        create_response: false,
+
+                        /*
+                         * Keep this false for now.
+                         * We don't want Realtime cancelling
+                         * pia-ai-controlled speech unexpectedly.
+                         */
+                        interrupt_response: false,
                     },
                 },
 
@@ -150,7 +158,8 @@ Deno.serve(async (req) => {
             },
         };
 
-        const formData = new FormData();
+        const formData =
+            new FormData();
 
         formData.set(
             "sdp",
@@ -159,7 +168,9 @@ Deno.serve(async (req) => {
 
         formData.set(
             "session",
-            JSON.stringify(sessionConfig),
+            JSON.stringify(
+                sessionConfig,
+            ),
         );
 
         const openAIResponse =
