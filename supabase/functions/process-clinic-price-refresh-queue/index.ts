@@ -227,7 +227,15 @@ async function importFromSource(
 
         sourceUrl,
 
-        treatmentCode: job.treatment_code,
+        /*
+         * Important:
+         * Do NOT limit HTML extraction to the one treatment
+         * that triggered the refresh.
+         *
+         * A clinic price page should be crawled once and all
+         * supported treatment prices should be extracted.
+         */
+        treatmentCode: null,
 
         forceRefresh: true,
       }),
@@ -531,23 +539,56 @@ Deno.serve(async (request: Request) => {
          * We normally expect exactly
          * one requested treatment.
          */
-        const requestedCandidate = candidates.find(
-          (candidate) =>
-            !job.treatment_code ||
-            candidate.treatmentCode === job.treatment_code,
-        );
+        const safeCandidates: PriceCandidate[] = [];
 
-        if (!requestedCandidate) {
+        const unsafeCandidates: Array<{
+          candidate: PriceCandidate;
+          reasons: string[];
+        }> = [];
+
+        for (const candidate of candidates) {
+          const safety = isCandidateSafe(candidate);
+
+          if (safety.safe) {
+            safeCandidates.push(candidate);
+          } else {
+            unsafeCandidates.push({
+              candidate,
+              reasons: safety.reasons,
+            });
+          }
+        }
+
+        /*
+         * The treatment that triggered the refresh still matters
+         * to the UI, but it no longer limits what we extract/store.
+         */
+        const requestedCandidate = job.treatment_code
+          ? candidates.find(
+            (candidate) =>
+              candidate.treatmentCode === job.treatment_code,
+          )
+          : null;
+
+        if (
+          job.treatment_code &&
+          !requestedCandidate
+        ) {
           throw new Error("Requested treatment candidate missing.");
         }
 
-        const safety = isCandidateSafe(requestedCandidate);
+        /*
+         * If nothing from this clinic is safe enough to publish,
+         * leave the import available for manual review.
+         */
+        if (safeCandidates.length === 0) {
+          const requestedUnsafe = job.treatment_code
+            ? unsafeCandidates.find(
+              ({ candidate }) =>
+                candidate.treatmentCode === job.treatment_code,
+            )
+            : unsafeCandidates[0];
 
-        if (!safety.safe) {
-          /*
-           * Leave import pending for
-           * manual PriceImportAdmin review.
-           */
           await supabaseAdmin
             .from("clinic_price_refresh_queue")
             .update({
@@ -557,7 +598,9 @@ Deno.serve(async (request: Request) => {
 
               completed_at: new Date().toISOString(),
 
-              error_message: `Manual review: ${safety.reasons.join(", ")}`,
+              error_message: requestedUnsafe
+                ? `Manual review: ${requestedUnsafe.reasons.join(", ")}`
+                : "No safe treatment prices found.",
             })
             .eq("id", job.id);
 
@@ -568,17 +611,16 @@ Deno.serve(async (request: Request) => {
 
             published: false,
 
-            manualReview: true,
+            manualReview: unsafeCandidates.length > 0,
 
-            reasons: safety.reasons,
+            reasons: requestedUnsafe?.reasons ?? [],
           });
 
           continue;
         }
 
         /*
-         * Safe treatment:
-         * publish automatically.
+         * Publish every safe treatment found during this clinic crawl.
          */
         const approveResponse = await fetch(
           `${supabaseUrl}/functions/v1/approve-clinic-price-import`,
@@ -590,15 +632,15 @@ Deno.serve(async (request: Request) => {
             body: JSON.stringify({
               importId: importResult.importId,
 
-              candidates: [
-                {
-                  treatmentCode: requestedCandidate.treatmentCode,
+              candidates: safeCandidates.map(
+                (candidate) => ({
+                  treatmentCode: candidate.treatmentCode,
 
-                  priceFrom: requestedCandidate.priceFrom,
+                  priceFrom: candidate.priceFrom,
 
-                  priceTo: requestedCandidate.priceTo,
-                },
-              ],
+                  priceTo: candidate.priceTo,
+                }),
+              ),
             }),
           },
         );
@@ -618,7 +660,15 @@ Deno.serve(async (request: Request) => {
 
             completed_at: new Date().toISOString(),
 
-            error_message: null,
+            error_message:
+              unsafeCandidates.length > 0
+                ? `Some candidates need manual review: ${unsafeCandidates
+                  .map(
+                    ({ candidate }) =>
+                      candidate.treatmentCode,
+                  )
+                  .join(", ")}`
+                : null,
           })
           .eq("id", job.id);
 
@@ -629,9 +679,24 @@ Deno.serve(async (request: Request) => {
 
           published: true,
 
-          priceFrom: requestedCandidate.priceFrom,
+          publishedCount: safeCandidates.length,
 
-          priceTo: requestedCandidate.priceTo,
+          publishedTreatments: safeCandidates.map(
+            (candidate) =>
+              candidate.treatmentCode,
+          ),
+
+          requestedPrice: requestedCandidate
+            ? {
+              priceFrom: requestedCandidate.priceFrom,
+              priceTo: requestedCandidate.priceTo,
+            }
+            : null,
+
+          manualReviewTreatments: unsafeCandidates.map(
+            ({ candidate }) =>
+              candidate.treatmentCode,
+          ),
         });
       } catch (error) {
         const message =

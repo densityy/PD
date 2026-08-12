@@ -576,8 +576,43 @@ export default function ClinicFinder({
              */
             const treatmentForSearch = selectedTreatment;
 
+            /*
+             * Show clinic results immediately.
+             *
+             * Price hydration must not block the patient from
+             * seeing the clinics returned by Google Places.
+             *
+             * search-clinics currently returns its own cached
+             * price map, but Clinic.prices expects the normalized
+             * array produced by priceService, so start clean here.
+             */
+            const visibleResults = results.map(
+                (clinic): Clinic => ({
+                    ...clinic,
+                    prices: [],
+                }),
+            );
+
+            setClinics(
+                visibleResults,
+            );
+
+            /*
+             * The clinic search itself is finished.
+             * Prices continue loading independently.
+             */
+            setLoadingClinics(false);
+
+            setRefreshingClinicIds(
+                new Set(
+                    visibleResults.map(
+                        (clinic) => clinic.id,
+                    ),
+                ),
+            );
+
             const resultsWithPrices = await addPricesToClinics(
-                results,
+                visibleResults,
                 treatmentForSearch,
             );
 
