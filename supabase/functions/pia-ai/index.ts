@@ -1,13 +1,14 @@
-import '@supabase/functions-js/edge-runtime.d.ts';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import "@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 interface ChatMessage {
-  sender: 'pia' | 'user';
+  sender: "pia" | "user";
   text: string;
 }
 
 interface PiaRequest {
   message: string;
   history?: ChatMessage[];
+  source?: "chat" | "voice";
 }
 
 interface PiaStructuredResponse {
@@ -15,16 +16,16 @@ interface PiaStructuredResponse {
   extracted: {
     location: string | null;
     treatment:
-    | 'toothache'
-    | 'checkup'
-    | 'emergency'
-    | 'cosmetic'
-    | 'broken_tooth'
-    | 'wisdom_tooth'
-    | 'root_canal'
-    | 'cleaning'
-    | 'other'
-    | null;
+      | "toothache"
+      | "checkup"
+      | "emergency"
+      | "cosmetic"
+      | "broken_tooth"
+      | "wisdom_tooth"
+      | "root_canal"
+      | "cleaning"
+      | "other"
+      | null;
     age: number | null;
     severity: number | null;
     duration: string | null;
@@ -36,21 +37,21 @@ interface PiaStructuredResponse {
     emergencyWarning: boolean;
   };
   actions: Array<
-    | 'search_clinics'
-    | 'request_location'
-    | 'compare_prices'
-    | 'check_public_eligibility'
-    | 'ask_follow_up'
-    | 'show_emergency_advice'
-    | 'none'
+    | "search_clinics"
+    | "request_location"
+    | "compare_prices"
+    | "check_public_eligibility"
+    | "ask_follow_up"
+    | "show_emergency_advice"
+    | "none"
   >;
 }
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 const PIA_INSTRUCTIONS = `
@@ -181,97 +182,97 @@ VIKTIG:
 `;
 
 const piaResponseSchema = {
-  type: 'object',
+  type: "object",
   additionalProperties: false,
   properties: {
     message: {
-      type: 'string',
+      type: "string",
     },
     extracted: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
       properties: {
         location: {
-          type: ['string', 'null'],
+          type: ["string", "null"],
         },
         treatment: {
-          type: ['string', 'null'],
+          type: ["string", "null"],
           enum: [
-            'toothache',
-            'checkup',
-            'emergency',
-            'cosmetic',
-            'broken_tooth',
-            'wisdom_tooth',
-            'root_canal',
-            'cleaning',
-            'other',
+            "toothache",
+            "checkup",
+            "emergency",
+            "cosmetic",
+            "broken_tooth",
+            "wisdom_tooth",
+            "root_canal",
+            "cleaning",
+            "other",
             null,
           ],
         },
         age: {
-          type: ['integer', 'null'],
+          type: ["integer", "null"],
           minimum: 0,
           maximum: 120,
         },
         severity: {
-          type: ['integer', 'null'],
+          type: ["integer", "null"],
           minimum: 1,
           maximum: 10,
         },
         duration: {
-          type: ['string', 'null'],
+          type: ["string", "null"],
         },
         wantsClinicSearch: {
-          type: 'boolean',
+          type: "boolean",
         },
         wantsPriceComparison: {
-          type: 'boolean',
+          type: "boolean",
         },
         asksAboutPublicEligibility: {
-          type: 'boolean',
+          type: "boolean",
         },
         wantsPublicClinics: {
-          type: 'boolean',
+          type: "boolean",
         },
         wantsPrivateClinics: {
-          type: 'boolean',
+          type: "boolean",
         },
         emergencyWarning: {
-          type: 'boolean',
+          type: "boolean",
         },
       },
       required: [
-        'location',
-        'treatment',
-        'age',
-        'severity',
-        'duration',
-        'wantsClinicSearch',
-        'wantsPriceComparison',
-        'asksAboutPublicEligibility',
-        'wantsPublicClinics',
-        'wantsPrivateClinics',
-        'emergencyWarning',
+        "location",
+        "treatment",
+        "age",
+        "severity",
+        "duration",
+        "wantsClinicSearch",
+        "wantsPriceComparison",
+        "asksAboutPublicEligibility",
+        "wantsPublicClinics",
+        "wantsPrivateClinics",
+        "emergencyWarning",
       ],
     },
     actions: {
-      type: 'array',
+      type: "array",
       items: {
-        type: 'string',
+        type: "string",
         enum: [
-          'search_clinics',
-          'request_location',
-          'compare_prices',
-          'check_public_eligibility',
-          'ask_follow_up',
-          'show_emergency_advice',
-          'none',
+          "search_clinics",
+          "request_location",
+          "compare_prices",
+          "check_public_eligibility",
+          "ask_follow_up",
+          "show_emergency_advice",
+          "none",
         ],
       },
     },
   },
-  required: ['message', 'extracted', 'actions'],
+  required: ["message", "extracted", "actions"],
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -279,7 +280,7 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: {
       ...corsHeaders,
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
   });
 }
@@ -299,16 +300,14 @@ function extractOutputText(responseBody: {
 
   return responseBody.output
     ?.flatMap((item) => item.content ?? [])
-    .find((item) => item.type === 'output_text')
-    ?.text;
+    .find((item) => item.type === "output_text")?.text;
 }
-
 
 function normalizeIntentText(value: string) {
   return value
-    .toLocaleLowerCase('nb-NO')
-    .replace(/[.,!?;:()[\]{}"']/g, ' ')
-    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase("nb-NO")
+    .replace(/[.,!?;:()[\]{}"']/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -316,150 +315,146 @@ function containsClinicIntent(value: string) {
   const text = normalizeIntentText(value);
 
   const clinicWords = [
-    'klinikk',
-    'tannklinikk',
-    'tannlege',
-    'dentist',
-    'clinic',
-    'dental clinic',
+    "klinikk",
+    "tannklinikk",
+    "tannlege",
+    "dentist",
+    "clinic",
+    "dental clinic",
   ];
 
   const intentWords = [
-    'finn',
-    'finne',
-    'trenger',
-    'trenge',
-    'ønsker',
-    'ønske',
-    'vil ha',
-    'hjelp meg',
-    'hjelpe meg',
-    'hvor',
-    'nær meg',
-    'find',
-    'need',
-    'want',
-    'looking for',
-    'help me',
-    'where',
-    'near me',
+    "finn",
+    "finne",
+    "trenger",
+    "trenge",
+    "ønsker",
+    "ønske",
+    "vil ha",
+    "hjelp meg",
+    "hjelpe meg",
+    "hvor",
+    "nær meg",
+    "find",
+    "need",
+    "want",
+    "looking for",
+    "help me",
+    "where",
+    "near me",
   ];
 
-  const hasClinicWord = clinicWords.some(
-    (word) => text.includes(word),
-  );
+  const hasClinicWord = clinicWords.some((word) => text.includes(word));
 
-  const hasIntentWord = intentWords.some(
-    (word) => text.includes(word),
-  );
+  const hasIntentWord = intentWords.some((word) => text.includes(word));
 
   if (hasClinicWord && hasIntentWord) {
     return true;
   }
 
   const explicitPhrases = [
-    'bestill time',
-    'bestille time',
-    'book time',
-    'book appointment',
-    'get an appointment',
-    'where can i get',
-    'hvor kan jeg få',
-    'hvor kan jeg gå',
+    "bestill time",
+    "bestille time",
+    "book time",
+    "book appointment",
+    "get an appointment",
+    "where can i get",
+    "hvor kan jeg få",
+    "hvor kan jeg gå",
   ];
 
-  return explicitPhrases.some(
-    (phrase) => text.includes(phrase),
-  );
+  return explicitPhrases.some((phrase) => text.includes(phrase));
 }
 
-function hasRecentClinicIntent(
-  message: string,
-  history: ChatMessage[],
-) {
+function hasRecentClinicIntent(message: string, history: ChatMessage[]) {
   if (containsClinicIntent(message)) {
     return true;
   }
 
   return history
     .slice(-8)
-    .filter((item) => item.sender === 'user')
+    .filter((item) => item.sender === "user")
     .some((item) => containsClinicIntent(item.text));
 }
 
 function enforceClinicSearchFlow(
   parsed: PiaStructuredResponse,
   clinicIntent: boolean,
+  source: "chat" | "voice" = "voice",
 ) {
   const modelIndicatesClinicIntent =
     parsed.extracted.wantsClinicSearch ||
-    parsed.actions.includes('search_clinics') ||
-    parsed.actions.includes('request_location');
+    parsed.actions.includes("search_clinics") ||
+    parsed.actions.includes("request_location");
 
-  const shouldEnterClinicFlow =
-    clinicIntent || modelIndicatesClinicIntent;
+  const shouldEnterClinicFlow = clinicIntent || modelIndicatesClinicIntent;
 
-  if (
-    !shouldEnterClinicFlow ||
-    parsed.extracted.emergencyWarning
-  ) {
+  if (!shouldEnterClinicFlow || parsed.extracted.emergencyWarning) {
     return parsed;
   }
 
+  const explicitLocation = parsed.extracted.location?.trim();
+
   /*
-   * ALWAYS confirm final search location in the frontend.
-   * Spoken/extracted locations are context only.
+   * Text chat and voice deliberately behave differently here.
+   * A location typed by the user is safe to use directly. Voice calls
+   * still confirm transcribed place names before searching so a speech
+   * recognition mistake cannot silently send the patient to the wrong city.
    */
   const otherActions = parsed.actions.filter(
     (action) =>
-      action !== 'search_clinics' &&
-      action !== 'request_location' &&
-      action !== 'none',
+      action !== "search_clinics" &&
+      action !== "request_location" &&
+      action !== "none",
   );
 
+  if (source === "chat" && explicitLocation) {
+    parsed.extracted.wantsClinicSearch = true;
+    parsed.actions = ["search_clinics", ...otherActions];
+
+    parsed.message = `Klart — jeg finner relevante tannklinikker i ${explicitLocation}.`;
+
+    return parsed;
+  }
+
   parsed.extracted.wantsClinicSearch = false;
-  parsed.actions = [
-    'request_location',
-    ...otherActions,
-  ];
+  parsed.actions = ["request_location", ...otherActions];
 
   /*
    * Never allow Pia to send a patient away to Google,
    * Maps, another search engine, or another Pocket Dentist page.
    */
   parsed.message =
-    'Klart — bekreft posisjonen din, så finner jeg relevante tannklinikker i nærheten.';
+    "Klart — bekreft posisjonen din, så finner jeg relevante tannklinikker i nærheten.";
 
   return parsed;
 }
 
 Deno.serve(async (request: Request) => {
-  if (request.method === 'OPTIONS') {
-    return new Response('ok', {
+  if (request.method === "OPTIONS") {
+    return new Response("ok", {
       headers: corsHeaders,
     });
   }
 
-  if (request.method !== 'POST') {
+  if (request.method !== "POST") {
     return jsonResponse(
       {
-        error: 'Method not allowed.',
+        error: "Method not allowed.",
       },
       405,
     );
   }
 
   try {
-    const openAiApiKey = Deno.env.get('OPENAI_API_KEY');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey = Deno.env.get(
-      'SUPABASE_SERVICE_ROLE_KEY',
-    );
+    const openAiApiKey = Deno.env.get("OPENAI_API_KEY");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!openAiApiKey || !supabaseUrl || !serviceRoleKey) {
       return jsonResponse(
         {
-          error: 'Server credentials are not configured.',
+          error: "Server credentials are not configured.",
         },
         500,
       );
@@ -471,7 +466,7 @@ Deno.serve(async (request: Request) => {
     if (!message) {
       return jsonResponse(
         {
-          error: 'A message is required.',
+          error: "A message is required.",
         },
         400,
       );
@@ -481,64 +476,46 @@ Deno.serve(async (request: Request) => {
     if (message.length > 2000) {
       return jsonResponse(
         {
-          error: 'Message is too long.',
+          error: "Message is too long.",
         },
         400,
       );
     }
 
     // Only send a limited amount of conversation history to OpenAI.
-    const history = (body.history ?? [])
-      .slice(-10)
-      .map((item) => ({
-        role: item.sender === 'user' ? 'user' : 'assistant',
-        content: item.text.slice(0, 2000),
-      }));
+    const history = (body.history ?? []).slice(-10).map((item) => ({
+      role: item.sender === "user" ? "user" : "assistant",
+      content: item.text.slice(0, 2000),
+    }));
 
-    const clinicIntent = hasRecentClinicIntent(
-      message,
-      body.history ?? [],
-    );
+    const clinicIntent = hasRecentClinicIntent(message, body.history ?? []);
 
     // Identify caller for rate limiting.
-    const forwardedFor =
-      request.headers.get('x-forwarded-for');
+    const forwardedFor = request.headers.get("x-forwarded-for");
 
     const clientIp =
-      forwardedFor?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      'unknown';
+      forwardedFor?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
 
-    const supabaseAdmin = createClient(
-      supabaseUrl,
-      serviceRoleKey,
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
       },
-    );
+    });
 
-    const {
-      data: rateLimitResult,
-      error: rateLimitError,
-    } = await supabaseAdmin.rpc(
-      'check_pia_rate_limit',
-      {
+    const { data: rateLimitResult, error: rateLimitError } =
+      await supabaseAdmin.rpc("check_pia_rate_limit", {
         p_identifier: clientIp,
-      },
-    );
+      });
 
     if (rateLimitError) {
-      console.error(
-        'Pia rate limit check failed:',
-        rateLimitError,
-      );
+      console.error("Pia rate limit check failed:", rateLimitError);
 
       return jsonResponse(
         {
-          error: 'Could not verify request limit.',
+          error: "Could not verify request limit.",
         },
         500,
       );
@@ -549,55 +526,52 @@ Deno.serve(async (request: Request) => {
     if (!rateLimit?.allowed) {
       return jsonResponse(
         {
-          error: 'Too many requests. Please try again later.',
+          error: "Too many requests. Please try again later.",
         },
         429,
       );
     }
 
     // OpenAI is only called after the request passes the rate limit.
-    const openAiResponse = await fetch(
-      'https://api.openai.com/v1/responses',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${openAiApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-5-mini',
-          instructions: PIA_INSTRUCTIONS,
-          input: [
-            ...history,
-            {
-              role: 'user',
-              content: message,
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'pia_response',
-              strict: true,
-              schema: piaResponseSchema,
-            },
-          },
-          reasoning: {
-            effort: 'low',
-          },
-          max_output_tokens: 700,
-        }),
+    const openAiResponse = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${openAiApiKey}`,
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify({
+        model: "gpt-5-mini",
+        instructions: PIA_INSTRUCTIONS,
+        input: [
+          ...history,
+          {
+            role: "user",
+            content: message,
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "pia_response",
+            strict: true,
+            schema: piaResponseSchema,
+          },
+        },
+        reasoning: {
+          effort: "low",
+        },
+        max_output_tokens: 700,
+      }),
+    });
 
     const responseBody = await openAiResponse.json();
 
     if (!openAiResponse.ok) {
-      console.error('OpenAI error:', responseBody);
+      console.error("OpenAI error:", responseBody);
 
       return jsonResponse(
         {
-          error: 'OpenAI request failed.',
+          error: "OpenAI request failed.",
           details: responseBody,
         },
         openAiResponse.status,
@@ -609,7 +583,7 @@ Deno.serve(async (request: Request) => {
     if (!outputText) {
       return jsonResponse(
         {
-          error: 'Pia returned an empty response.',
+          error: "Pia returned an empty response.",
         },
         502,
       );
@@ -620,15 +594,11 @@ Deno.serve(async (request: Request) => {
     try {
       parsed = JSON.parse(outputText) as PiaStructuredResponse;
     } catch (error) {
-      console.error(
-        'Could not parse Pia response:',
-        outputText,
-        error,
-      );
+      console.error("Could not parse Pia response:", outputText, error);
 
       return jsonResponse(
         {
-          error: 'Pia returned invalid structured data.',
+          error: "Pia returned invalid structured data.",
         },
         502,
       );
@@ -637,18 +607,16 @@ Deno.serve(async (request: Request) => {
     parsed = enforceClinicSearchFlow(
       parsed,
       clinicIntent,
+      body.source === "chat" ? "chat" : "voice",
     );
 
     return jsonResponse(parsed);
   } catch (error) {
-    console.error('Pia function error:', error);
+    console.error("Pia function error:", error);
 
     return jsonResponse(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Unknown server error.',
+        error: error instanceof Error ? error.message : "Unknown server error.",
       },
       500,
     );

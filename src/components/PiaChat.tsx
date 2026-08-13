@@ -112,15 +112,28 @@ function asksForLocation(
   );
 }
 
-function clinicHasPrice(
-  clinic: Clinic,
+function getTreatmentOptions(
+  clinics: Clinic[],
 ) {
-  return (
-    Array.isArray(
-      clinic.prices,
-    ) &&
-    clinic.prices.length >
-      0
+  return Array.from(
+    new Set(
+      clinics.flatMap(
+        (clinic) =>
+          Array.isArray(clinic.prices)
+            ? clinic.prices
+                .map((price) => price.treatment?.trim())
+                .filter(
+                  (treatment): treatment is string =>
+                    Boolean(treatment),
+                )
+            : [],
+      ),
+    ),
+  ).sort((a, b) =>
+    a.localeCompare(
+      b,
+      "nb-NO",
+    )
   );
 }
 
@@ -166,12 +179,14 @@ function PiaAvatar({
         </>
       )}
 
-      <div className="relative h-full w-full overflow-hidden rounded-full border-2 border-white/80 shadow-[0_8px_25px_rgba(13,30,61,0.16)]">
+      <div className="relative h-full w-full overflow-hidden rounded-full border-2 border-white/80 bg-gradient-to-b from-[#e9fcff] to-[#d8f4fa] shadow-[0_8px_25px_rgba(13,30,61,0.16)]">
         <img
           src="/pia-avatar.png"
           alt="Pia"
-          className={`h-full w-full object-cover object-top ${animationClass}`}
+          className={`h-full w-full object-cover ${animationClass}`}
         />
+
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#14c8d4]/8 to-transparent" />
       </div>
 
       {showOnlineDot && (
@@ -227,6 +242,11 @@ export default function PiaChat() {
   ] = useState(false);
 
   const [
+    selectedTreatment,
+    setSelectedTreatment,
+  ] = useState("");
+
+  const [
     coordinates,
     setCoordinates,
   ] = useState<Coordinates | null>(
@@ -259,6 +279,10 @@ export default function PiaChat() {
   const searchAbortRef = useRef<AbortController | null>(
     null,
   );
+
+  const pendingClinicSearchRef = useRef<{
+    treatment?: string;
+  } | null>(null);
 
   const piaAvatarState: PiaAvatarState = isSearching ||
       isRefreshingPrices
@@ -373,6 +397,10 @@ export default function PiaChat() {
 
     setIsRefreshingPrices(
       false,
+    );
+
+    setSelectedTreatment(
+      "",
     );
 
     setMessages([
@@ -534,6 +562,18 @@ export default function PiaChat() {
         } catch {
           // Optional.
         }
+
+        const pendingSearch = pendingClinicSearchRef.current;
+
+        if (pendingSearch) {
+          pendingClinicSearchRef.current = null;
+
+          void searchForClinics(
+            undefined,
+            pendingSearch.treatment,
+            nextCoordinates,
+          );
+        }
       },
       () => {
         setCoordinates(
@@ -554,15 +594,18 @@ export default function PiaChat() {
     );
   };
 
-  const searchForClinics = async (
+  async function searchForClinics(
     locationAnswer?: string,
     treatment?: string,
-  ) => {
+    coordinateOverride?: Coordinates | null,
+  ) {
     const explicitLocation = locationAnswer?.trim() ??
       "";
 
+    const activeCoordinates = coordinateOverride ?? coordinates;
+
     const canUseCoordinates = !explicitLocation &&
-      coordinates !==
+      activeCoordinates !==
         null;
 
     if (
@@ -592,6 +635,10 @@ export default function PiaChat() {
       false,
     );
 
+    setSelectedTreatment(
+      "",
+    );
+
     const locationLabel = explicitLocation ||
       "i nærheten av deg";
 
@@ -618,9 +665,9 @@ export default function PiaChat() {
           location: explicitLocation ||
             undefined,
 
-          latitude: canUseCoordinates ? coordinates?.latitude : undefined,
+          latitude: canUseCoordinates ? activeCoordinates?.latitude : undefined,
 
-          longitude: canUseCoordinates ? coordinates?.longitude : undefined,
+          longitude: canUseCoordinates ? activeCoordinates?.longitude : undefined,
 
           treatment: treatment ??
             collected.reason,
@@ -776,7 +823,7 @@ export default function PiaChat() {
         );
       }
     }
-  };
+  }
 
   const handleNaturalMessage = async (
     answer: string,
@@ -790,6 +837,7 @@ export default function PiaChat() {
       const pia = await sendMessageToPia(
         answer,
         historyBeforeUserMessage,
+        "chat",
       );
 
       const updatedData: CollectedPatientData = {
@@ -841,32 +889,30 @@ export default function PiaChat() {
         pia.extracted
           .wantsPriceComparison;
 
+      const requestsLocation = pia.actions.includes(
+        "request_location",
+      );
+
       /*
-       * If Pia's AI response asks for
-       * location but Pocket Dentist
-       * already has browser location,
-       * don't make the patient repeat it.
+       * The shared pia-ai backend also serves voice calls, where spoken
+       * place names should still be confirmed. In text chat, however, a
+       * typed place name is already a usable search location. If browser
+       * coordinates are available, they are usable too.
        */
-      const replaceLocationQuestion = Boolean(
-        coordinates,
-      ) &&
-        !pia.extracted
-          .location &&
-        Boolean(
-          treatment,
-        ) &&
-        asksForLocation(
-          pia.message,
-        );
+      const canAutoContinueLocationRequest = requestsLocation &&
+        (Boolean(
+          pia.extracted.location?.trim(),
+        ) || Boolean(coordinates));
 
       if (
-        replaceLocationQuestion
+        canAutoContinueLocationRequest
       ) {
         addPiaMessage({
           sender: "pia",
 
-          text:
-            "Klart. Jeg bruker posisjonen din og finner aktuelle klinikker i nærheten.",
+          text: pia.extracted.location
+            ? `Klart. Jeg finner aktuelle tannklinikker i ${pia.extracted.location}.`
+            : "Klart. Jeg bruker posisjonen din og finner aktuelle klinikker i nærheten.",
         });
       } else {
         addPiaMessage({
@@ -874,6 +920,26 @@ export default function PiaChat() {
 
           text: pia.message,
         });
+      }
+
+      if (
+        requestsLocation &&
+        !canAutoContinueLocationRequest
+      ) {
+        /*
+         * Remember the treatment so clicking "Bruk posisjonen min"
+         * immediately continues the search instead of forcing the user
+         * to type "I shared it" or repeat the request.
+         */
+        pendingClinicSearchRef.current = {
+          treatment,
+        };
+
+        setLocationConsent(
+          "prompt",
+        );
+      } else {
+        pendingClinicSearchRef.current = null;
       }
 
       if (
@@ -887,7 +953,7 @@ export default function PiaChat() {
       }
 
       const shouldSearch = normalSearchRequest ||
-        replaceLocationQuestion;
+        canAutoContinueLocationRequest;
 
       if (
         shouldSearch &&
@@ -1848,13 +1914,61 @@ export default function PiaChat() {
                         0 &&
                       (
                         <div className="mt-2.5 space-y-2.5">
+                          <div className="rounded-2xl border border-[#dfe8ee] bg-white p-3.5 shadow-sm">
+                            <label
+                              htmlFor={`treatment-${index}`}
+                              className="mb-1.5 block text-xs font-semibold text-[#0d1e3d]"
+                            >
+                              Velg behandling for å se pris
+                            </label>
+
+                            <select
+                              id={`treatment-${index}`}
+                              value={selectedTreatment}
+                              onChange={(event) =>
+                                setSelectedTreatment(
+                                  event.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-[#d7e4e9] bg-white px-3 py-2.5 text-sm text-[#0d1e3d] outline-none transition focus:border-[#14c8d4] focus:ring-2 focus:ring-[#14c8d4]/15"
+                            >
+                              <option value="">
+                                Velg behandling
+                              </option>
+
+                              {getTreatmentOptions(
+                                message.clinics,
+                              ).map(
+                                (
+                                  treatment,
+                                ) => (
+                                  <option
+                                    key={treatment}
+                                    value={treatment}
+                                  >
+                                    {treatment}
+                                  </option>
+                                ),
+                              )}
+                            </select>
+
+                            {isRefreshingPrices && (
+                              <p className="mt-1.5 text-[10px] text-gray-500">
+                                Pia henter fortsatt priser i bakgrunnen. Flere behandlinger kan dukke opp.
+                              </p>
+                            )}
+                          </div>
+
                           {message.clinics.map(
                             (
                               clinic,
                             ) => {
-                              const hasPrice = clinicHasPrice(
-                                clinic,
-                              );
+                              const selectedPrice = selectedTreatment
+                                ? clinic.prices?.find(
+                                    (price) =>
+                                      price.treatment === selectedTreatment,
+                                  )
+                                : undefined;
 
                               return (
                                 <div
@@ -1910,60 +2024,62 @@ export default function PiaChat() {
                                     )}
                                   </div>
 
-                                  {hasPrice &&
-                                    clinic.prices?.map(
-                                      (
-                                        price,
-                                      ) => (
-                                        <div
-                                          key={`${clinic.id}-${price.treatment}`}
-                                          className="mt-3 rounded-xl bg-[#ecfafb] px-3 py-2.5"
-                                        >
-                                          <p className="text-[11px] font-medium text-[#557181]">
-                                            {price.treatment}
-                                          </p>
+                                  {!selectedTreatment && (
+                                    <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2.5">
+                                      <p className="text-xs font-medium text-gray-600">
+                                        Velg en behandling over for å se pris.
+                                      </p>
+                                    </div>
+                                  )}
 
-                                          <p className="mt-0.5 text-base font-bold text-[#0d1e3d]">
-                                            {typeof price.priceFrom ===
-                                                  "number" &&
-                                                typeof price.priceTo ===
-                                                  "number"
-                                              ? `${
-                                                price.priceFrom.toLocaleString(
-                                                  "nb-NO",
-                                                )
-                                              }–${
-                                                price.priceTo.toLocaleString(
-                                                  "nb-NO",
-                                                )
-                                              } kr`
-                                              : typeof price.priceFrom ===
-                                                  "number"
-                                              ? `Fra ${
-                                                price.priceFrom.toLocaleString(
-                                                  "nb-NO",
-                                                )
-                                              } kr`
-                                              : "Pris ikke tilgjengelig"}
-                                          </p>
+                                  {selectedTreatment &&
+                                    selectedPrice && (
+                                    <div className="mt-3 rounded-xl bg-[#ecfafb] px-3 py-2.5">
+                                      <p className="text-[11px] font-medium text-[#557181]">
+                                        {selectedPrice.treatment}
+                                      </p>
 
-                                          <p className="mt-1 text-[10px] text-gray-500">
-                                            {price.sourceType ===
-                                                "clinic_submitted"
-                                              ? "Bekreftet av klinikken"
-                                              : price.sourceType ===
-                                                  "clinic_website"
-                                              ? "Publisert på klinikkens nettside"
-                                              : price.sourceType ===
-                                                  "manual"
-                                              ? "Manuelt kontrollert"
-                                              : "Veiledende pris"}
-                                          </p>
-                                        </div>
-                                      ),
-                                    )}
+                                      <p className="mt-0.5 text-base font-bold text-[#0d1e3d]">
+                                        {typeof selectedPrice.priceFrom ===
+                                              "number" &&
+                                            typeof selectedPrice.priceTo ===
+                                              "number"
+                                          ? `${
+                                            selectedPrice.priceFrom.toLocaleString(
+                                              "nb-NO",
+                                            )
+                                          }–${
+                                            selectedPrice.priceTo.toLocaleString(
+                                              "nb-NO",
+                                            )
+                                          } kr`
+                                          : typeof selectedPrice.priceFrom ===
+                                              "number"
+                                          ? `Fra ${
+                                            selectedPrice.priceFrom.toLocaleString(
+                                              "nb-NO",
+                                            )
+                                          } kr`
+                                          : "Pris ikke tilgjengelig"}
+                                      </p>
 
-                                  {!hasPrice &&
+                                      <p className="mt-1 text-[10px] text-gray-500">
+                                        {selectedPrice.sourceType ===
+                                            "clinic_submitted"
+                                          ? "Bekreftet av klinikken"
+                                          : selectedPrice.sourceType ===
+                                              "clinic_website"
+                                          ? "Publisert på klinikkens nettside"
+                                          : selectedPrice.sourceType ===
+                                              "manual"
+                                          ? "Manuelt kontrollert"
+                                          : "Veiledende pris"}
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {selectedTreatment &&
+                                    !selectedPrice &&
                                     isRefreshingPrices && (
                                     <div className="mt-3 flex items-center gap-2 rounded-xl bg-[#f0fbfc] px-3 py-2.5">
                                       <span className="h-3 w-3 animate-spin rounded-full border-2 border-[#14c8d4]/30 border-t-[#14c8d4]" />
@@ -1974,18 +2090,18 @@ export default function PiaChat() {
                                         </p>
 
                                         <p className="text-[10px] text-gray-500">
-                                          Sjekker klinikkens offentlige
-                                          priskilder
+                                          Sjekker pris for {selectedTreatment}
                                         </p>
                                       </div>
                                     </div>
                                   )}
 
-                                  {!hasPrice &&
+                                  {selectedTreatment &&
+                                    !selectedPrice &&
                                     !isRefreshingPrices && (
                                     <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2.5">
                                       <p className="text-xs font-semibold text-gray-600">
-                                        Pris ikke tilgjengelig
+                                        Pris ikke tilgjengelig for {selectedTreatment}
                                       </p>
                                     </div>
                                   )}
@@ -1996,45 +2112,47 @@ export default function PiaChat() {
                                         href={clinic.website}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:border-[#14c8d4] hover:text-[#0daeba]"
-                                        title="Nettside"
+                                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#dce7ec] bg-white px-3 py-2 text-xs font-semibold text-[#0d1e3d] transition hover:bg-gray-50"
                                       >
                                         <Globe2
-                                          size={14}
+                                          size={13}
                                         />
+                                        Nettside
                                       </a>
                                     )}
 
                                     {clinic.phone && (
                                       <a
-                                        href={`tel:${
-                                          formatPhoneLink(
-                                            clinic.phone,
-                                          )
-                                        }`}
-                                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:border-[#14c8d4] hover:text-[#0daeba]"
-                                        title="Ring klinikken"
+                                        href={`tel:${formatPhoneLink(
+                                          clinic.phone,
+                                        )}`}
+                                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#dce7ec] bg-white px-3 py-2 text-xs font-semibold text-[#0d1e3d] transition hover:bg-gray-50"
                                       >
                                         <Phone
-                                          size={14}
+                                          size={13}
                                         />
+                                        Ring
                                       </a>
                                     )}
-
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        selectClinic(
-                                          clinic,
-                                        )}
-                                      disabled={isSaving ||
-                                        step !==
-                                          "clinicSelection"}
-                                      className="ml-auto rounded-xl bg-[#0d1e3d] px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#143a6e] disabled:cursor-not-allowed disabled:opacity-40"
-                                    >
-                                      Velg klinikk
-                                    </button>
                                   </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      selectClinic(
+                                        clinic,
+                                      )
+                                    }
+                                    disabled={
+                                      isSaving ||
+                                      isSearching ||
+                                      step !==
+                                        "clinicSelection"
+                                    }
+                                    className="mt-3 w-full rounded-xl bg-[#0d1e3d] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#143a6e] disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    Velg denne klinikken
+                                  </button>
                                 </div>
                               );
                             },
