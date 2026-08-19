@@ -1,0 +1,160 @@
+{
+  "width": 941,
+  "height": 1672,
+  "layers": {
+    "Body - Lower": {
+      "url": "/pia-avatar/body-lower.webp",
+      "x": 288,
+      "y": 1251,
+      "width": 366,
+      "height": 421
+    },
+    "Uniform - Torso": {
+      "url": "/pia-avatar/uniform-torso.webp",
+      "x": 209,
+      "y": 598,
+      "width": 528,
+      "height": 661
+    },
+    "Arm L - Upper and Forearm": {
+      "url": "/pia-avatar/arm-l-upper-and-forearm.webp",
+      "x": 159,
+      "y": 782,
+      "width": 137,
+      "height": 890
+    },
+    "Hand L - Fingers": {
+      "url": "/pia-avatar/hand-l-fingers.webp",
+      "x": 133,
+      "y": 1217,
+      "width": 111,
+      "height": 291
+    },
+    "Arm R - Upper and Forearm": {
+      "url": "/pia-avatar/arm-r-upper-and-forearm.webp",
+      "x": 646,
+      "y": 782,
+      "width": 133,
+      "height": 864
+    },
+    "Hand R - Fingers": {
+      "url": "/pia-avatar/hand-r-fingers.webp",
+      "x": 719,
+      "y": 1217,
+      "width": 84,
+      "height": 291
+    },
+    "Neck": {
+      "url": "/pia-avatar/neck.webp",
+      "x": 363,
+      "y": 598,
+      "width": 216,
+      "height": 125
+    },
+    "Face Base": {
+      "url": "/pia-avatar/face-base.webp",
+      "x": 263,
+      "y": 140,
+      "width": 423,
+      "height": 466
+    },
+    "Eye L": {
+      "url": "/pia-avatar/eye-l.webp",
+      "x": 350,
+      "y": 318,
+      "width": 125,
+      "height": 75
+    },
+    "Eye R": {
+      "url": "/pia-avatar/eye-r.webp",
+      "x": 467,
+      "y": 318,
+      "width": 125,
+      "height": 75
+    },
+    "Brow L": {
+      "url": "/pia-avatar/brow-l.webp",
+      "x": 349,
+      "y": 287,
+      "width": 123,
+      "height": 47
+    },
+    "Brow R": {
+      "url": "/pia-avatar/brow-r.webp",
+      "x": 470,
+      "y": 287,
+      "width": 123,
+      "height": 47
+    },
+    "Mouth Viseme - MBP": {
+      "url": "/pia-avatar/mouth-viseme-mbp.webp",
+      "x": 389,
+      "y": 411,
+      "width": 163,
+      "height": 77
+    },
+    "Mouth Viseme - Transition": {
+      "url": "/pia-avatar/mouth-viseme-transition.webp",
+      "x": 389,
+      "y": 411,
+      "width": 163,
+      "height": 77
+    },
+    "Mouth Viseme - A": {
+      "url": "/pia-avatar/mouth-viseme-a.webp",
+      "x": 389,
+      "y": 411,
+      "width": 163,
+      "height": 85
+    },
+    "Mouth Viseme - E": {
+      "url": "/pia-avatar/mouth-viseme-e.webp",
+      "x": 389,
+      "y": 411,
+      "width": 163,
+      "height": 77
+    },
+    "Mouth Viseme - OU": {
+      "url": "/pia-avatar/mouth-viseme-ou.webp",
+      "x": 389,
+      "y": 411,
+      "width": 163,
+      "height": 78
+    },
+    "Mouth Viseme - FV": {
+      "url": "/pia-avatar/mouth-viseme-fv.webp",
+      "x": 389,
+      "y": 411,
+      "width": 163,
+      "height": 77
+    },
+    "Hair - Front": {
+      "url": "/pia-avatar/hair-front.webp",
+      "x": 340,
+      "y": 144,
+      "width": 252,
+      "height": 161
+    },
+    "Hair - Loose Strand L": {
+      "url": "/pia-avatar/hair-loose-strand-l.webp",
+      "x": 328,
+      "y": 331,
+      "width": 81,
+      "height": 164
+    },
+    "Hair - Loose Strand R": {
+      "url": "/pia-avatar/hair-loose-strand-r.webp",
+      "x": 561,
+      "y": 331,
+      "width": 62,
+      "height": 248
+    },
+    "Tooth Badge": {
+      "url": "/pia-avatar/tooth-badge.webp",
+      "x": 514,
+      "y": 632,
+      "width": 121,
+      "height": 142
+    }
+  }
+}

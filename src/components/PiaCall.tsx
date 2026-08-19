@@ -100,7 +100,12 @@ export default function PiaCall({
     open,
     onClose,
 }: PiaCallProps) {
-    const [piaState, setPiaState] = useState<PiaState>("idle");
+    const [piaState, setPiaState] = useState<PiaState>(() => (
+        import.meta.env.DEV &&
+        new URLSearchParams(window.location.search).has("pia-speaking-preview")
+            ? "speaking"
+            : "idle"
+    ));
 
     const [muted, setMuted] = useState(false);
 
@@ -2117,6 +2122,11 @@ export default function PiaCall({
         .toString()
         .padStart(2, "0");
 
+    const avatarState: PiaState = (
+        import.meta.env.DEV &&
+        new URLSearchParams(window.location.search).has("pia-speaking-preview")
+    ) ? "speaking" : piaState;
+
     const stateText = {
         idle: "Pia er klar",
         listening: "Pia lytter...",
@@ -2202,7 +2212,8 @@ export default function PiaCall({
                         }`}
                     >
                         <Pia2D
-                            state={piaState}
+                            state={avatarState}
+                            speechText={lastPiaText}
                             className="h-full w-full"
                         />
                     </div>

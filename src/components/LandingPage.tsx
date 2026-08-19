@@ -39,7 +39,10 @@ export default function LandingPage({
   const [
     piaCallOpen,
     setPiaCallOpen,
-  ] = useState(false);
+  ] = useState(() => (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).has("pia-call-preview")
+  ));
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 16);
