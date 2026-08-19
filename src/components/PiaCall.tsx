@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
-import Pia3D from "@/components/Pia3D";
+import Pia2D from "@/components/Pia2D";
 import { sendMessageToPia } from "@/services/piaService";
 import { addPricesToClinics } from "@/services/priceService";
 import {
@@ -108,7 +108,7 @@ export default function PiaCall({
 
     const [seconds, setSeconds] = useState(0);
 
-    const [lastUserText, setLastUserText] = useState("");
+    const [, setLastUserText] = useState("");
 
     const [lastPiaText, setLastPiaText] = useState("");
 
@@ -1095,7 +1095,7 @@ export default function PiaCall({
      * --------------------------------------------------
      */
 
-    const useManualLocationForPia = async () => {
+    const handleManualLocationForPia = async () => {
         const location = manualLocation.trim();
 
         if (!location) {
@@ -2201,7 +2201,7 @@ export default function PiaCall({
                                 : ""
                         }`}
                     >
-                        <Pia3D
+                        <Pia2D
                             state={piaState}
                             className="h-full w-full"
                         />
@@ -2348,7 +2348,7 @@ export default function PiaCall({
                                         if (
                                             event.key === "Enter"
                                         ) {
-                                            void useManualLocationForPia();
+                                            void handleManualLocationForPia();
                                         }
                                     }}
                                     placeholder="By, område eller postnummer"
@@ -2360,7 +2360,7 @@ export default function PiaCall({
                                     disabled={locationLoading ||
                                         !manualLocation.trim()}
                                     onClick={() => {
-                                        void useManualLocationForPia();
+                                        void handleManualLocationForPia();
                                     }}
                                     className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1689d4] px-5 py-3.5 font-black text-white shadow-lg shadow-[#1689d4]/20 transition hover:bg-[#0878c2] disabled:cursor-not-allowed disabled:opacity-50"
                                 >

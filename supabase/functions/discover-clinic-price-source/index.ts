@@ -918,10 +918,8 @@ Deno.serve(async (request: Request) => {
       });
     }
 
-    let website: URL;
-
     try {
-      website = new URL(websiteUrl);
+      new URL(websiteUrl);
     } catch {
       return jsonResponse({
         discovered: false,

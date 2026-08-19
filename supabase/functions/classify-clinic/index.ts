@@ -774,11 +774,6 @@ Deno.serve(
           ?.trim() ||
         null;
 
-      const address =
-        body.address
-          ?.trim() ||
-        null;
-
       if (
         !googlePlaceId ||
         !clinicName

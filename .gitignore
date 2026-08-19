@@ -22,3 +22,4 @@ dist-ssr
 *.sw?
 .env
 battery-report.html
+*.blend1

@@ -1,4 +1,4 @@
-import { Clock, Phone, Building2, ArrowRight } from 'lucide-react';
+import { Phone, Building2, ArrowRight } from 'lucide-react';
 import type { Conversation, ConversationStatus } from '@/lib/supabase';
 
 interface ConversationListProps {

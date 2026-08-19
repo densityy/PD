@@ -88,30 +88,6 @@ function isSimpleGreeting(
   );
 }
 
-function asksForLocation(
-  value: string,
-) {
-  const normalized = value.toLowerCase();
-
-  return (
-    normalized.includes(
-      "hvor befinner",
-    ) ||
-    normalized.includes(
-      "hvilken by",
-    ) ||
-    normalized.includes(
-      "postnummer",
-    ) ||
-    normalized.includes(
-      "hvor bor",
-    ) ||
-    normalized.includes(
-      "hvor er du",
-    )
-  );
-}
-
 function getTreatmentOptions(
   clinics: Clinic[],
 ) {
