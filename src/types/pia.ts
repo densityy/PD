@@ -2,6 +2,7 @@ export type Sender = "pia" | "user";
 
 export interface ClinicPrice {
     treatment: string;
+    treatmentCode?: string;
     priceFrom?: number;
     priceTo?: number;
     currency: "NOK";

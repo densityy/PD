@@ -34,6 +34,40 @@ function jsonResponse(
     );
 }
 
+function wakePriceProcessor(
+    supabaseUrl: string,
+    serviceRoleKey: string,
+    adminKey: string,
+) {
+    const task = fetch(
+        `${supabaseUrl}/functions/v1/process-clinic-price-refresh-queue`,
+        {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${serviceRoleKey}`,
+                apikey: serviceRoleKey,
+                'x-admin-key': adminKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                source: 'clinic-finder',
+            }),
+        },
+    ).catch((error) => {
+        console.error(
+            'Could not trigger processor:',
+            error,
+        );
+    });
+
+    /*
+     * Supabase Edge Functions may finish the request as soon as a
+     * response is returned. Register the wake-up as background work so
+     * the runtime keeps it alive long enough to reach the processor.
+     */
+    EdgeRuntime.waitUntil(task);
+}
+
 Deno.serve(async (request: Request) => {
     if (request.method === 'OPTIONS') {
         return new Response('ok', {
@@ -315,37 +349,10 @@ Deno.serve(async (request: Request) => {
             /*
              * Wake the processor.
              */
-            void fetch(
-                `${supabaseUrl}/functions/v1/process-clinic-price-refresh-queue`,
-                {
-                    method: 'POST',
-                    headers: {
-                        Authorization:
-                            `Bearer ${serviceRoleKey}`,
-
-                        apikey:
-                            serviceRoleKey,
-
-                        'x-admin-key':
-                            adminKey,
-
-                        'Content-Type':
-                            'application/json',
-                    },
-
-                    body:
-                        JSON.stringify({
-                            source:
-                                'clinic-finder',
-                        }),
-                },
-            ).catch(
-                (error) => {
-                    console.error(
-                        'Could not trigger processor:',
-                        error,
-                    );
-                },
+            wakePriceProcessor(
+                supabaseUrl,
+                serviceRoleKey,
+                adminKey,
             );
 
             return jsonResponse({
@@ -411,38 +418,10 @@ Deno.serve(async (request: Request) => {
         /*
          * Secure server-to-server processor trigger.
          */
-        void fetch(
-            `${supabaseUrl}/functions/v1/process-clinic-price-refresh-queue`,
-            {
-                method: 'POST',
-
-                headers: {
-                    Authorization:
-                        `Bearer ${serviceRoleKey}`,
-
-                    apikey:
-                        serviceRoleKey,
-
-                    'x-admin-key':
-                        adminKey,
-
-                    'Content-Type':
-                        'application/json',
-                },
-
-                body:
-                    JSON.stringify({
-                        source:
-                            'clinic-finder',
-                    }),
-            },
-        ).catch(
-            (error) => {
-                console.error(
-                    'Could not trigger processor:',
-                    error,
-                );
-            },
+        wakePriceProcessor(
+            supabaseUrl,
+            serviceRoleKey,
+            adminKey,
         );
 
         return jsonResponse({

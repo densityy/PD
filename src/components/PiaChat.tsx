@@ -176,7 +176,10 @@ export default function PiaChat() {
   const [
     isOpen,
     setIsOpen,
-  ] = useState(false);
+  ] = useState(() => (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).has("pia-chat-preview")
+  ));
 
   const [
     step,
@@ -233,7 +236,7 @@ export default function PiaChat() {
     locationConsent,
     setLocationConsent,
   ] = useState<LocationConsent>(
-    "prompt",
+    "not_now",
   );
 
   const [
@@ -249,6 +252,10 @@ export default function PiaChat() {
   );
 
   const scrollRef = useRef<HTMLDivElement>(
+    null,
+  );
+
+  const inputRef = useRef<HTMLInputElement>(
     null,
   );
 
@@ -314,6 +321,18 @@ export default function PiaChat() {
               setCoordinates(
                 null,
               );
+
+              setLocationConsent(
+                "not_now",
+              );
+
+              try {
+                window.localStorage.removeItem(
+                  "pocket-dentist-location",
+                );
+              } catch {
+                // Local storage is optional.
+              }
             },
             {
               enableHighAccuracy: false,
@@ -351,6 +370,8 @@ export default function PiaChat() {
   const startConversation = () => {
     searchAbortRef.current?.abort();
 
+    pendingClinicSearchRef.current = null;
+
     setCollected(
       {},
     );
@@ -376,6 +397,10 @@ export default function PiaChat() {
     );
 
     setSelectedTreatment(
+      "",
+    );
+
+    setLocationError(
       "",
     );
 
@@ -570,6 +595,30 @@ export default function PiaChat() {
     );
   };
 
+  const requestManualLocation = () => {
+    setLocationConsent(
+      "not_now",
+    );
+
+    setLocationError(
+      "",
+    );
+
+    setStep(
+      "location",
+    );
+
+    addPiaMessage({
+      sender: "pia",
+      text: "Skriv byen, området eller postnummeret du vil søke i.",
+    });
+
+    window.setTimeout(
+      () => inputRef.current?.focus(),
+      0,
+    );
+  };
+
   async function searchForClinics(
     locationAnswer?: string,
     treatment?: string,
@@ -577,6 +626,12 @@ export default function PiaChat() {
   ) {
     const explicitLocation = locationAnswer?.trim() ??
       "";
+
+    if (explicitLocation) {
+      setLocationConsent(
+        "not_now",
+      );
+    }
 
     const activeCoordinates = coordinateOverride ?? coordinates;
 
@@ -1116,6 +1171,22 @@ export default function PiaChat() {
     historyBeforeUserMessage: ChatMessage[],
   ) => {
     if (
+      step === "location" &&
+      pendingClinicSearchRef.current
+    ) {
+      const pendingSearch = pendingClinicSearchRef.current;
+
+      pendingClinicSearchRef.current = null;
+
+      await searchForClinics(
+        answer,
+        pendingSearch.treatment,
+      );
+
+      return;
+    }
+
+    if (
       step ===
         "clinicSelection"
     ) {
@@ -1388,6 +1459,10 @@ export default function PiaChat() {
 
   const reset = () => {
     searchAbortRef.current?.abort();
+
+    setLocationConsent(
+      coordinates ? "granted" : "not_now",
+    );
 
     setMessages(
       [],
@@ -1711,7 +1786,13 @@ export default function PiaChat() {
       )}
 
       {isOpen && (
-        <div className="fixed bottom-5 right-5 z-50 flex w-[430px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-2xl">
+        <div
+          className="fixed bottom-3 right-3 z-50 flex flex-col overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-2xl sm:bottom-5 sm:right-5"
+          style={{
+            width: "min(430px, calc(100vw - 24px))",
+            maxHeight: "calc(100dvh - 24px)",
+          }}
+        >
           <div className="relative flex items-center justify-between overflow-hidden bg-gradient-to-r from-[#0d1e3d] to-[#143a6e] px-4 py-3.5">
             <div className="absolute -left-10 top-0 h-28 w-28 rounded-full bg-[#14c8d4]/10 blur-2xl" />
 
@@ -1803,13 +1884,10 @@ export default function PiaChat() {
 
                     <button
                       type="button"
-                      onClick={() =>
-                        setLocationConsent(
-                          "not_now",
-                        )}
+                      onClick={requestManualLocation}
                       className="rounded-lg px-3 py-1.5 text-[11px] font-semibold text-gray-500 hover:bg-white"
                     >
-                      Ikke nå
+                      Skriv inn sted
                     </button>
                   </div>
 
@@ -1838,7 +1916,7 @@ export default function PiaChat() {
 
           <div
             ref={scrollRef}
-            className="min-h-[340px] max-h-[540px] flex-1 space-y-3 overflow-y-auto bg-[#f7f9fb] p-3.5"
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#f7f9fb] p-3.5 sm:min-h-[340px] sm:max-h-[540px]"
           >
             {messages.map(
               (
@@ -1856,7 +1934,7 @@ export default function PiaChat() {
                 >
                   {message.sender ===
                       "pia" && (
-                    <div className="pia-message-avatar mt-auto">
+                    <div className="pia-message-avatar mt-auto flex-shrink-0">
                       <PiaAvatar
                         state="idle"
                         size={36}
@@ -1864,14 +1942,7 @@ export default function PiaChat() {
                     </div>
                   )}
 
-                  <div
-                    className={`max-w-[84%] ${
-                      message.sender ===
-                          "pia"
-                        ? "w-full"
-                        : ""
-                    }`}
-                  >
+                  <div className="min-w-0 max-w-[calc(100%_-_46px)]">
                     <div
                       className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
                         message.sender ===
@@ -2240,6 +2311,7 @@ export default function PiaChat() {
             className="flex items-center gap-2 border-t border-gray-100 bg-white p-3"
           >
             <input
+              ref={inputRef}
               type={step ===
                   "phone"
                 ? "tel"
@@ -2262,6 +2334,9 @@ export default function PiaChat() {
                 : step ===
                     "clinicSelection"
                 ? "Velg en klinikk ovenfor..."
+                : step ===
+                    "location"
+                ? "Skriv by, område eller postnummer..."
                 : "Skriv til Pia..."}
               disabled={isSaving ||
                 isSearching ||

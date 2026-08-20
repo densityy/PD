@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { addPricesToClinics } from "@/services/priceService";
+import { refreshClinicPrices } from "@/services/priceRefreshService";
 import type { Clinic } from "@/types/pia";
 
 import {
@@ -18,15 +19,6 @@ import {
 
 interface ClinicFinderProps {
     onBack: () => void;
-}
-
-const MAX_PRICE_POLLS = 24;
-const PRICE_POLL_DELAY_MS = 2500;
-
-function delay(ms: number) {
-    return new Promise<void>((resolve) => {
-        window.setTimeout(resolve, ms);
-    });
 }
 
 function toCanonicalTreatmentCode(treatment: string) {
@@ -71,6 +63,25 @@ function clinicHasPrice(clinic: Clinic) {
     return (
         Array.isArray(clinic.prices) &&
         clinic.prices.length > 0
+    );
+}
+
+function selectTreatmentPrices(
+    clinics: Clinic[],
+    treatment: string,
+) {
+    const treatmentCode = toCanonicalTreatmentCode(
+        treatment,
+    );
+
+    return clinics.map(
+        (clinic): Clinic => ({
+            ...clinic,
+            prices: (clinic.prices ?? []).filter(
+                (price) =>
+                    price.treatmentCode === treatmentCode,
+            ),
+        }),
     );
 }
 
@@ -232,10 +243,6 @@ export default function ClinicFinder({
             return;
         }
 
-        const canonicalTreatmentCode = toCanonicalTreatmentCode(
-            treatmentCode,
-        );
-
         const missingIds = new Set(
             missingClinics.map(
                 (clinic) => clinic.id,
@@ -256,231 +263,28 @@ export default function ClinicFinder({
             );
         }
 
-        console.log(
-            "Queueing missing treatment prices:",
-            missingClinics.length,
-            canonicalTreatmentCode,
-        );
-
-        await Promise.allSettled(
-            missingClinics.map(
-                async (clinic) => {
-                    /*
-                     * If the patient switched treatment
-                     * while we were starting, don't queue
-                     * unnecessary work.
-                     */
-                    if (
-                        !isRequestCurrent(
-                            requestId,
-                        )
-                    ) {
-                        return;
-                    }
-
-                    const {
-                        data,
-                        error,
-                    } = await supabase.functions.invoke(
-                        "queue-clinic-price-refresh",
-                        {
-                            body: {
-                                googlePlaceId: clinic.id,
-
-                                clinicName: clinic.name,
-
-                                clinicCity: clinic.city ??
-                                    null,
-
-                                sourceUrl: clinic.priceListUrl ??
-                                    null,
-
-                                websiteUrl: clinic.website ??
-                                    null,
-
-                                treatmentCode: canonicalTreatmentCode,
-                            },
-                        },
-                    );
-
-                    if (error) {
-                        console.error(
-                            `Could not queue ${clinic.name}:`,
-                            error,
-                        );
-
-                        return;
-                    }
-
-                    console.log(
-                        `Price refresh queued: ${clinic.name}`,
-                        data,
-                    );
-                },
-            ),
-        );
-
-        /*
-         * User may have switched treatment while
-         * queue requests were running.
-         */
-        if (
-            !isRequestCurrent(
-                requestId,
-            )
-        ) {
-            console.log(
-                "Stopping stale price refresh after queue:",
-                treatmentCode,
-            );
-
-            return;
-        }
-
-        let latestClinics = clinicsToCheck;
-
-        for (
-            let attempt = 1;
-            attempt <=
-                MAX_PRICE_POLLS;
-            attempt++
-        ) {
-            await delay(
-                PRICE_POLL_DELAY_MS,
-            );
-
-            /*
-             * THIS is the important race-condition fix.
-             */
-            if (
-                !isRequestCurrent(
-                    requestId,
-                )
-            ) {
-                console.log(
-                    "Stopping stale price poll:",
-                    treatmentCode,
-                );
-
-                return;
-            }
-
-            try {
-                const refreshed = await addPricesToClinics(
-                    latestClinics,
-                    treatmentCode,
-                );
-
-                /*
-                 * addPricesToClinics itself is async.
-                 * Treatment could have changed while
-                 * awaiting it.
-                 */
-                if (
-                    !isRequestCurrent(
-                        requestId,
-                    )
-                ) {
-                    console.log(
-                        "Ignoring stale price response:",
-                        treatmentCode,
-                    );
-
+        await refreshClinicPrices({
+            clinics: clinicsToCheck,
+            treatment: treatmentCode,
+            isCurrent: () => isRequestCurrent(requestId),
+            onUpdate: ({
+                clinics: refreshed,
+                missingClinicIds,
+                complete,
+            }) => {
+                if (!isRequestCurrent(requestId)) {
                     return;
                 }
 
-                latestClinics = refreshed;
-
-                setClinics(
-                    refreshed,
-                );
-
-                const stillMissing = refreshed.filter(
-                    (clinic) =>
-                        !clinicHasPrice(
-                            clinic,
-                        ),
-                );
-
-                const stillMissingIds = new Set(
-                    stillMissing.map(
-                        (clinic) => clinic.id,
-                    ),
-                );
-
+                setClinics(refreshed);
                 setRefreshingClinicIds(
-                    stillMissingIds,
+                    complete ? new Set() : missingClinicIds,
                 );
-
-                console.log(
-                    `Price poll ${attempt}/${MAX_PRICE_POLLS}:`,
-                    {
-                        treatmentCode: canonicalTreatmentCode,
-
-                        missing: stillMissing.length,
-                    },
+                setUnavailableClinicIds(
+                    complete ? missingClinicIds : new Set(),
                 );
-
-                if (
-                    stillMissing.length ===
-                        0
-                ) {
-                    setRefreshingClinicIds(
-                        new Set(),
-                    );
-
-                    setUnavailableClinicIds(
-                        new Set(),
-                    );
-
-                    return;
-                }
-            } catch (error) {
-                if (
-                    !isRequestCurrent(
-                        requestId,
-                    )
-                ) {
-                    return;
-                }
-
-                console.error(
-                    "Could not re-check refreshed prices:",
-                    error,
-                );
-            }
-        }
-
-        /*
-         * One final race check before marking
-         * cards as unavailable.
-         */
-        if (
-            !isRequestCurrent(
-                requestId,
-            )
-        ) {
-            return;
-        }
-
-        const finalMissing = latestClinics.filter(
-            (clinic) =>
-                !clinicHasPrice(
-                    clinic,
-                ),
-        );
-
-        setRefreshingClinicIds(
-            new Set(),
-        );
-
-        setUnavailableClinicIds(
-            new Set(
-                finalMissing.map(
-                    (clinic) => clinic.id,
-                ),
-            ),
-        );
+            },
+        });
     }
 
     async function searchClinics() {
@@ -577,20 +381,13 @@ export default function ClinicFinder({
             const treatmentForSearch = selectedTreatment;
 
             /*
-             * Show clinic results immediately.
-             *
-             * Price hydration must not block the patient from
-             * seeing the clinics returned by Google Places.
-             *
-             * search-clinics currently returns its own cached
-             * price map, but Clinic.prices expects the normalized
-             * array produced by priceService, so start clean here.
+             * search-clinics already returns Pocket Dentist's cached
+             * prices. Keep the selected treatment instead of erasing
+             * it and immediately requesting the same data again.
              */
-            const visibleResults = results.map(
-                (clinic): Clinic => ({
-                    ...clinic,
-                    prices: [],
-                }),
+            const visibleResults = selectTreatmentPrices(
+                results,
+                treatmentForSearch,
             );
 
             setClinics(
@@ -603,17 +400,34 @@ export default function ClinicFinder({
              */
             setLoadingClinics(false);
 
+            const missingResults = visibleResults.filter(
+                (clinic) => !clinicHasPrice(clinic),
+            );
+
             setRefreshingClinicIds(
                 new Set(
-                    visibleResults.map(
+                    missingResults.map(
                         (clinic) => clinic.id,
                     ),
                 ),
             );
 
-            const resultsWithPrices = await addPricesToClinics(
-                visibleResults,
-                treatmentForSearch,
+            const hydratedMissing = missingResults.length > 0
+                ? await addPricesToClinics(
+                    missingResults,
+                    treatmentForSearch,
+                )
+                : [];
+
+            const hydratedById = new Map(
+                hydratedMissing.map(
+                    (clinic) => [clinic.id, clinic],
+                ),
+            );
+
+            const resultsWithPrices = visibleResults.map(
+                (clinic) =>
+                    hydratedById.get(clinic.id) ?? clinic,
             );
 
             if (

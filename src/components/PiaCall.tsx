@@ -20,6 +20,7 @@ import { supabase } from "@/lib/supabase";
 import Pia2D from "@/components/Pia2D";
 import { sendMessageToPia } from "@/services/piaService";
 import { addPricesToClinics } from "@/services/priceService";
+import { refreshClinicPrices } from "@/services/priceRefreshService";
 import {
     connectPiaRealtime,
     type PiaRealtimeConnection,
@@ -45,30 +46,6 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 const GREETING =
     "Hei! Jeg er Pia, din digitale tannlegeresepsjonist. Hva kan jeg hjelpe deg med i dag?";
-
-const MAX_PRICE_POLLS = 24;
-const PRICE_POLL_DELAY_MS = 2500;
-
-function delay(ms: number) {
-    return new Promise<void>((resolve) => {
-        window.setTimeout(resolve, ms);
-    });
-}
-
-function toCanonicalTreatmentCode(treatment: string) {
-    const treatmentMap: Record<string, string> = {
-        checkup: "examination",
-        examination: "examination",
-        emergency: "emergency_consultation",
-        emergency_consultation: "emergency_consultation",
-        root_canal: "root_canal",
-        cosmetic: "teeth_whitening",
-        teeth_whitening: "teeth_whitening",
-        crown: "crown",
-    };
-
-    return treatmentMap[treatment] ?? treatment;
-}
 
 function getTreatmentLabel(treatment: string) {
     const labels: Record<string, string> = {
@@ -641,10 +618,6 @@ export default function PiaCall({
             return;
         }
 
-        const canonicalTreatmentCode = toCanonicalTreatmentCode(
-            treatmentCode,
-        );
-
         setRefreshingClinicIds(
             new Set(
                 missingClinics.map(
@@ -657,164 +630,29 @@ export default function PiaCall({
             new Set(),
         );
 
-        await Promise.allSettled(
-            missingClinics.map(
-                async (clinic) => {
-                    if (
-                        !isPriceRequestCurrent(
-                            requestId,
-                        )
-                    ) {
-                        return;
-                    }
-
-                    const {
-                        error,
-                    } = await supabase.functions.invoke(
-                        "queue-clinic-price-refresh",
-                        {
-                            body: {
-                                googlePlaceId: clinic.id,
-
-                                clinicName: clinic.name,
-
-                                clinicCity: clinic.city ??
-                                    null,
-
-                                sourceUrl: clinic.priceListUrl ??
-                                    null,
-
-                                websiteUrl: clinic.website ??
-                                    null,
-
-                                treatmentCode: canonicalTreatmentCode,
-                            },
-                        },
-                    );
-
-                    if (error) {
-                        console.error(
-                            `Could not queue ${clinic.name}:`,
-                            error,
-                        );
-                    }
-                },
-            ),
-        );
-
-        if (
-            !isPriceRequestCurrent(
-                requestId,
-            )
-        ) {
-            return;
-        }
-
-        let latestClinics = clinicsToCheck;
-
-        for (
-            let attempt = 1;
-            attempt <= MAX_PRICE_POLLS;
-            attempt++
-        ) {
-            await delay(
-                PRICE_POLL_DELAY_MS,
-            );
-
-            if (
-                !isPriceRequestCurrent(
-                    requestId,
-                )
-            ) {
-                return;
-            }
-
-            try {
-                const refreshed = await addPricesToClinics(
-                    latestClinics,
-                    treatmentCode,
-                );
-
-                if (
-                    !isPriceRequestCurrent(
-                        requestId,
-                    )
-                ) {
+        await refreshClinicPrices({
+            clinics: clinicsToCheck,
+            treatment: treatmentCode,
+            isCurrent: () =>
+                isPriceRequestCurrent(requestId),
+            onUpdate: ({
+                clinics: refreshed,
+                missingClinicIds,
+                complete,
+            }) => {
+                if (!isPriceRequestCurrent(requestId)) {
                     return;
                 }
 
-                latestClinics = refreshed;
-
-                setClinics(
-                    refreshed,
-                );
-
-                const stillMissing = refreshed.filter(
-                    (clinic) =>
-                        !clinicHasPrice(
-                            clinic,
-                        ),
-                );
-
+                setClinics(refreshed);
                 setRefreshingClinicIds(
-                    new Set(
-                        stillMissing.map(
-                            (clinic) => clinic.id,
-                        ),
-                    ),
+                    complete ? new Set() : missingClinicIds,
                 );
-
-                if (
-                    stillMissing.length === 0
-                ) {
-                    setUnavailableClinicIds(
-                        new Set(),
-                    );
-
-                    return;
-                }
-            } catch (error) {
-                if (
-                    !isPriceRequestCurrent(
-                        requestId,
-                    )
-                ) {
-                    return;
-                }
-
-                console.error(
-                    "Could not re-check refreshed prices:",
-                    error,
+                setUnavailableClinicIds(
+                    complete ? missingClinicIds : new Set(),
                 );
-            }
-        }
-
-        if (
-            !isPriceRequestCurrent(
-                requestId,
-            )
-        ) {
-            return;
-        }
-
-        const finalMissing = latestClinics.filter(
-            (clinic) =>
-                !clinicHasPrice(
-                    clinic,
-                ),
-        );
-
-        setRefreshingClinicIds(
-            new Set(),
-        );
-
-        setUnavailableClinicIds(
-            new Set(
-                finalMissing.map(
-                    (clinic) => clinic.id,
-                ),
-            ),
-        );
+            },
+        });
     };
 
     const changeTreatment = async (

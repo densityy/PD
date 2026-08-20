@@ -2,15 +2,13 @@ import { supabase } from "@/lib/supabase";
 
 import {
     addPricesToClinics,
-    getTreatmentCode,
 } from "@/services/priceService";
+
+import { refreshClinicPrices } from "@/services/priceRefreshService";
 
 import type {
     Clinic,
 } from "@/types/pia";
-
-const PRICE_POLL_DELAY_MS = 2000;
-const MAX_PRICE_POLLS = 20;
 
 export interface ClinicSearchUpdate {
     clinics: Clinic[];
@@ -47,19 +45,6 @@ interface ClinicSearchFunctionResponse {
     location?: string;
     source: string;
     clinics: Clinic[];
-}
-
-function delay(
-    milliseconds: number,
-) {
-    return new Promise<void>(
-        (resolve) => {
-            window.setTimeout(
-                resolve,
-                milliseconds,
-            );
-        },
-    );
 }
 
 function clinicHasPrice(
@@ -99,110 +84,6 @@ function publishUpdate(
         missingPrices,
         complete,
     });
-}
-
-async function queueMissingPrices(
-    clinics: Clinic[],
-    options: ClinicSearchOptions,
-) {
-    if (
-        !options.treatment ||
-        isCancelled(
-            options.signal,
-        )
-    ) {
-        return;
-    }
-
-    const treatmentCode =
-        getTreatmentCode(
-            options.treatment,
-        ) ??
-        options.treatment;
-
-    const missingClinics =
-        clinics.filter(
-            (clinic) =>
-                !clinicHasPrice(
-                    clinic,
-                ),
-        );
-
-    if (
-        missingClinics.length ===
-        0
-    ) {
-        return;
-    }
-
-    console.log(
-        "PIA: queueing missing prices:",
-        {
-            treatmentCode,
-            count:
-                missingClinics.length,
-        },
-    );
-
-    await Promise.allSettled(
-        missingClinics.map(
-            async (clinic) => {
-                if (
-                    isCancelled(
-                        options.signal,
-                    )
-                ) {
-                    return;
-                }
-
-                const {
-                    data,
-                    error,
-                } =
-                    await supabase.functions.invoke(
-                        "queue-clinic-price-refresh",
-                        {
-                            body: {
-                                googlePlaceId:
-                                    clinic.id,
-
-                                clinicName:
-                                    clinic.name,
-
-                                clinicCity:
-                                    clinic.city ??
-                                    options.location ??
-                                    null,
-
-                                sourceUrl:
-                                    clinic.priceListUrl ??
-                                    null,
-
-                                websiteUrl:
-                                    clinic.website ??
-                                    null,
-
-                                treatmentCode,
-                            },
-                        },
-                    );
-
-                if (error) {
-                    console.error(
-                        `PIA: could not queue price for ${clinic.name}:`,
-                        error,
-                    );
-
-                    return;
-                }
-
-                console.log(
-                    `PIA: price refresh queued: ${clinic.name}`,
-                    data,
-                );
-            },
-        ),
-    );
 }
 
 export async function searchClinics(
@@ -364,121 +245,18 @@ export async function searchClinics(
         };
     }
 
-    /*
-     * Missing prices use the exact same
-     * backend worker pipeline as Clinic Finder.
-     */
-    await queueMissingPrices(
-        latestClinics,
-        options,
-    );
-
-    if (
-        isCancelled(
-            options.signal,
-        )
-    ) {
-        return {
-            source: "live",
-            clinics:
-                latestClinics,
-        };
-    }
-
-    /*
-     * Poll Pocket Dentist's published-price
-     * cache while the workers research the
-     * missing clinics.
-     */
-    for (
-        let attempt = 1;
-        attempt <=
-        MAX_PRICE_POLLS;
-        attempt++
-    ) {
-        await delay(
-            PRICE_POLL_DELAY_MS,
-        );
-
-        if (
-            isCancelled(
-                options.signal,
-            )
-        ) {
-            return {
-                source: "live",
-                clinics:
-                    latestClinics,
-            };
-        }
-
-        try {
-            latestClinics =
-                await addPricesToClinics(
-                    latestClinics,
-                    options.treatment,
-                );
-
-            if (
-                isCancelled(
-                    options.signal,
-                )
-            ) {
-                return {
-                    source:
-                        "live",
-
-                    clinics:
-                        latestClinics,
-                };
-            }
-
-            const missing =
-                latestClinics.filter(
-                    (clinic) =>
-                        !clinicHasPrice(
-                            clinic,
-                        ),
-                ).length;
-
-            console.log(
-                `PIA: price poll ${attempt}/${MAX_PRICE_POLLS}`,
-                {
-                    missing,
-                    treatment:
-                        options.treatment,
-                },
-            );
-
-            publishUpdate(
-                options,
-                latestClinics,
-                missing === 0,
-            );
-
-            if (
-                missing === 0
-            ) {
-                break;
-            }
-        } catch (error) {
-            console.error(
-                "PIA: price polling failed:",
-                error,
-            );
-        }
-    }
-
-    /*
-     * Final update tells Pia to stop showing
-     * "Henter pris…" even if one clinic does
-     * not publish a usable price.
-     */
-    publishUpdate(
-        options,
-        latestClinics,
-        true,
-    );
+    latestClinics = await refreshClinicPrices({
+        clinics: latestClinics,
+        treatment: options.treatment,
+        signal: options.signal,
+        onUpdate: (update) => {
+            options.onUpdate?.({
+                clinics: update.clinics,
+                missingPrices: update.missingClinicIds.size,
+                complete: update.complete,
+            });
+        },
+    });
 
     return {
         source: "live",

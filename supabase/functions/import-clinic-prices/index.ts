@@ -475,9 +475,18 @@ function normalizeCandidates(
 
 async function extractPricesFromPdf(
     pdfUrl: string,
-    requestedTreatmentCode: TreatmentCode,
+    requestedTreatmentCode: TreatmentCode | null,
     openAiApiKey: string,
 ): Promise<ExtractedCandidate[]> {
+    const extractionScope = requestedTreatmentCode
+        ? `Only return the requested treatment: ${requestedTreatmentCode}.`
+        : `Return every supported treatment explicitly priced in the PDF.
+Supported treatment codes: examination, emergency_consultation, root_canal, crown, teeth_whitening, filling, dental_cleaning, tooth_extraction, wisdom_tooth, implant.`;
+
+    const userRequest = requestedTreatmentCode
+        ? `Find the published price for ${requestedTreatmentCode}.`
+        : 'Extract all supported dental treatment prices published in this PDF.';
+
     const response =
         await fetch(
             'https://api.openai.com/v1/responses',
@@ -497,16 +506,13 @@ async function extractPricesFromPdf(
                         'gpt-5-mini',
 
                     instructions: `
-You extract ONE requested dental treatment price from an official Norwegian dental price-list PDF.
-
-Requested treatment code:
-${requestedTreatmentCode}
+You extract dental treatment prices from an official Norwegian dental price-list PDF.
 
 Rules:
-- Only return the requested treatment.
+${extractionScope}
 - Only use prices explicitly present in the PDF.
 - Never estimate or guess.
-- Return at most ONE candidate.
+- Return at most ONE candidate per treatment code.
 - If variants exist, priceFrom is the lowest valid standalone price and priceTo is the highest comparable standalone price.
 - For a single exact price, priceFrom and priceTo are equal.
 - For "fra" prices, use priceFrom and leave priceTo null unless a comparable upper price is explicitly listed.
@@ -534,7 +540,7 @@ Rules:
                                         'input_text',
 
                                     text:
-                                        `Find the published price for ${requestedTreatmentCode}.`,
+                                        userRequest,
                                 },
                             ],
                         },
@@ -565,7 +571,7 @@ Rules:
                                             'array',
 
                                         maxItems:
-                                            1,
+                                            requestedTreatmentCode ? 1 : 10,
 
                                         items:
                                         {
@@ -1284,26 +1290,24 @@ Allowed treatment codes:
                     : normalizedCandidates;
 
             /*
-             * PDF FALLBACK
+             * OFFICIAL PDF ENRICHMENT
              *
-             * If the requested treatment is not found
-             * on the HTML price page, check linked official
-             * PDF price lists before giving up.
+             * A linked clinic PDF is usually the most complete source.
+             * Read it once and merge every supported treatment into the
+             * HTML result. For a treatment-specific request, retain the
+             * existing single-treatment behavior.
              */
             let pdfSourceUrl: string | null = null;
 
-            if (
-                requestedTreatmentCode &&
-                candidates.length === 0
-            ) {
-                const pdfLinks =
-                    extractPdfLinks(
-                        html,
-                        sourceUrl,
-                    );
+            const pdfLinks =
+                extractPdfLinks(
+                    html,
+                    sourceUrl,
+                );
 
+            if (pdfLinks.length > 0) {
                 console.log(
-                    'Requested treatment missing from HTML.',
+                    'Official PDF price lists found.',
                     {
                         clinicName,
                         requestedTreatmentCode,
@@ -1325,11 +1329,29 @@ Allowed treatment codes:
                         );
 
                     if (pdfCandidates.length > 0) {
-                        candidates = pdfCandidates;
+                        const mergedCandidates =
+                            new Map<TreatmentCode, ExtractedCandidate>();
+
+                        for (const candidate of candidates) {
+                            mergedCandidates.set(
+                                candidate.treatmentCode,
+                                candidate,
+                            );
+                        }
+
+                        for (const candidate of pdfCandidates) {
+                            mergedCandidates.set(
+                                candidate.treatmentCode,
+                                candidate,
+                            );
+                        }
+
+                        candidates =
+                            [...mergedCandidates.values()];
                         pdfSourceUrl = pdfUrl;
 
                         console.log(
-                            'Treatment found in PDF:',
+                            'Prices extracted from PDF:',
                             {
                                 clinicName,
                                 requestedTreatmentCode,

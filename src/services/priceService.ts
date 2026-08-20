@@ -109,14 +109,6 @@ export async function addPricesToClinics(
     return clinics;
   }
 
-  console.log("PRICE LOOKUP:", {
-    treatmentCode,
-
-    requestedIds: googlePlaceIds,
-
-    data,
-  });
-
   if (!data?.treatment || !Array.isArray(data.prices)) {
     return clinics;
   }
@@ -187,40 +179,12 @@ export async function addPricesToClinics(
       verifiedAt: storedPrice.verified_at ?? undefined,
     };
 
-    console.log("PRICE MATCH:", {
-      clinic: clinic.name,
-
-      clinicId: clinic.id,
-
-      storedClinic: storedPrice.clinic_name,
-
-      storedId: storedPrice.google_place_id,
-
-      exactIdMatch:
-        normalizeId(clinic.id) === normalizeId(storedPrice.google_place_id),
-
-      priceFrom: clinicPrice.priceFrom,
-
-      priceTo: clinicPrice.priceTo,
-    });
-
     return {
       ...clinic,
 
       prices: [clinicPrice],
     };
   });
-
-  console.log(
-    "PRICE MATCH RESULT:",
-    clinicsWithPrices.map((clinic) => ({
-      clinic: clinic.name,
-
-      id: clinic.id,
-
-      prices: clinic.prices,
-    })),
-  );
 
   return clinicsWithPrices;
 }

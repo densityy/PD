@@ -693,6 +693,25 @@ async function discoverPriceFromContext(
     .filter((link) => link.score > 0)
     .sort((a, b) => b.score - a.score);
 
+  /*
+   * Some clinic sites (especially Wix sites) keep the complete price
+   * list in a PDF linked directly from the homepage instead of exposing
+   * a separate HTML price page. The importer already follows official
+   * PDF links from an HTML source, so preserve this containing page as
+   * the source rather than attempting to parse the PDF as HTML here.
+   */
+  const officialPdfLink = rankedLinks.find((link) =>
+    /\.pdf(?:$|[?#])/i.test(link.url)
+  );
+
+  if (officialPdfLink) {
+    return {
+      url: contextUrl,
+      score: Math.max(officialPdfLink.score, 12),
+      html: contextHtml,
+    };
+  }
+
   const commonPaths = [
     "/priser",
     "/priser/",

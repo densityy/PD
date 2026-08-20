@@ -228,12 +228,9 @@ async function importFromSource(
         sourceUrl,
 
         /*
-         * Important:
-         * Do NOT limit HTML extraction to the one treatment
-         * that triggered the refresh.
-         *
-         * A clinic price page should be crawled once and all
-         * supported treatment prices should be extracted.
+         * Crawl once and extract every supported treatment. The importer
+         * also follows an official linked PDF and merges its full price
+         * set, so later treatment switches can use the shared cache.
          */
         treatmentCode: null,
 
