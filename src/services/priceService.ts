@@ -166,6 +166,8 @@ export async function addPricesToClinics(
     const clinicPrice: ClinicPrice = {
       treatment: treatment.name,
 
+      treatmentCode: treatment.code,
+
       priceFrom: storedPrice.price_from ?? undefined,
 
       priceTo: storedPrice.price_to ?? undefined,

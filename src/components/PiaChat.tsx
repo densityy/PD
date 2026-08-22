@@ -123,22 +123,9 @@ function formatPhoneLink(
 }
 
 function PiaAvatar({
-  state = "idle",
   size = 52,
   showOnlineDot = false,
 }: PiaAvatarProps) {
-  const isBusy = state !== "idle";
-
-  const animationClass = state ===
-      "searching"
-    ? "pia-avatar-searching"
-    : state ===
-          "thinking" ||
-        state ===
-          "saving"
-    ? "pia-avatar-thinking"
-    : "pia-avatar-idle";
-
   return (
     <div
       className="relative flex-shrink-0"
@@ -147,22 +134,17 @@ function PiaAvatar({
         height: size,
       }}
     >
-      {isBusy && (
-        <>
-          <span className="pia-avatar-halo absolute -inset-2 rounded-full bg-[#14c8d4]/25 blur-md" />
-
-          <span className="pia-avatar-orbit pia-avatar-orbit-two absolute h-1 w-1 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
-        </>
-      )}
-
-      <div className="relative h-full w-full overflow-hidden rounded-full border-2 border-white/80 bg-gradient-to-b from-[#e9fcff] to-[#d8f4fa] shadow-[0_8px_25px_rgba(13,30,61,0.16)]">
-        <img
-          src="/pia-avatar.png"
-          alt="Pia"
-          className={`h-full w-full object-cover ${animationClass}`}
-        />
-
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#14c8d4]/8 to-transparent" />
+      <div
+        role="img"
+        aria-label="Pia"
+        className="relative h-full w-full overflow-hidden rounded-full border-2 border-white/80 bg-[#cfeeff] shadow-[0_8px_25px_rgba(13,30,61,0.16)]"
+        style={{
+          backgroundImage: "url('/pia-avatar.png')",
+          backgroundPosition: "center 24%",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "145% auto",
+        }}
+      >
       </div>
 
       {showOnlineDot && (
@@ -2042,6 +2024,22 @@ export default function PiaChat() {
                                             Privat
                                           </span>
                                         )}
+
+                                        {!clinic.clinicType && (
+                                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                                            Type ikke bekreftet
+                                          </span>
+                                        )}
+
+                                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                          clinic.acceptsNavGuarantee
+                                            ? "bg-emerald-50 text-emerald-700"
+                                            : "bg-slate-100 text-slate-500"
+                                        }`}>
+                                          {clinic.acceptsNavGuarantee
+                                            ? "Aksepterer NAV-garanti"
+                                            : "NAV ikke bekreftet"}
+                                        </span>
                                       </div>
 
                                       <div className="mt-1 flex items-start gap-1 text-xs text-gray-500">

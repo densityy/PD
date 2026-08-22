@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase";
 
 import {
-    addPricesToClinics,
+    getTreatmentCode,
 } from "@/services/priceService";
 
 import { refreshClinicPrices } from "@/services/priceRefreshService";
@@ -49,12 +49,16 @@ interface ClinicSearchFunctionResponse {
 
 function clinicHasPrice(
     clinic: Clinic,
+    treatmentCode?: string,
 ) {
-    return (
-        Array.isArray(
-            clinic.prices,
-        ) &&
-        clinic.prices.length > 0
+    if (!treatmentCode) {
+        return Boolean(clinic.prices?.length);
+    }
+
+    return Boolean(
+        clinic.prices?.some(
+            (price) => price.treatmentCode === treatmentCode,
+        ),
     );
 }
 
@@ -70,12 +74,14 @@ function publishUpdate(
     options: ClinicSearchOptions,
     clinics: Clinic[],
     complete: boolean,
+    treatmentCode?: string,
 ) {
     const missingPrices =
         clinics.filter(
             (clinic) =>
                 !clinicHasPrice(
                     clinic,
+                    treatmentCode,
                 ),
         ).length;
 
@@ -194,11 +200,8 @@ export async function searchClinics(
      * immediately when Pocket Dentist already
      * knows their prices.
      */
-    let latestClinics =
-        await addPricesToClinics(
-            data.clinics,
-            options.treatment,
-        );
+    const treatmentCode = getTreatmentCode(options.treatment);
+    let latestClinics = data.clinics;
 
     if (
         isCancelled(
@@ -217,6 +220,7 @@ export async function searchClinics(
             (clinic) =>
                 !clinicHasPrice(
                     clinic,
+                    treatmentCode,
                 ),
         );
 
@@ -231,6 +235,7 @@ export async function searchClinics(
         initiallyMissing.length ===
             0 ||
             !options.treatment,
+        treatmentCode,
     );
 
     if (

@@ -19,7 +19,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import Pia2D from "@/components/Pia2D";
 import { sendMessageToPia } from "@/services/piaService";
-import { addPricesToClinics } from "@/services/priceService";
+import { getTreatmentCode } from "@/services/priceService";
 import { refreshClinicPrices } from "@/services/priceRefreshService";
 import {
     connectPiaRealtime,
@@ -67,6 +67,16 @@ function clinicHasPrice(clinic: Clinic) {
         Array.isArray(clinic.prices) &&
         clinic.prices.length > 0
     );
+}
+
+function selectTreatmentPrices(clinics: Clinic[], treatment: string) {
+    const treatmentCode = getTreatmentCode(treatment) ?? treatment;
+    return clinics.map((clinic) => ({
+        ...clinic,
+        prices: (clinic.prices ?? []).filter(
+            (price) => price.treatmentCode === treatmentCode,
+        ),
+    }));
 }
 
 function formatPhoneLink(phone: string) {
@@ -136,6 +146,7 @@ export default function PiaCall({
     );
 
     const priceRequestIdRef = useRef(0);
+    const allClinicsRef = useRef<Clinic[]>([]);
 
     const isPriceRequestCurrent = (
         requestId: number,
@@ -683,66 +694,20 @@ export default function PiaCall({
          * so an old Rotfylling price cannot appear under
          * another treatment while its new lookup runs.
          */
-        const cleanClinics = clinics.map(
-            (clinic): Clinic => ({
-                ...clinic,
-                prices: [],
-            }),
+        const cleanClinics = selectTreatmentPrices(
+            allClinicsRef.current,
+            newTreatment,
         );
 
         setClinics(
             cleanClinics,
         );
 
-        setRefreshingClinicIds(
-            new Set(
-                cleanClinics.map(
-                    (clinic) => clinic.id,
-                ),
-            ),
+        void refreshMissingPrices(
+            cleanClinics,
+            newTreatment,
+            requestId,
         );
-
-        try {
-            const clinicsWithNewPrices = await addPricesToClinics(
-                cleanClinics,
-                newTreatment,
-            );
-
-            if (
-                !isPriceRequestCurrent(
-                    requestId,
-                )
-            ) {
-                return;
-            }
-
-            setClinics(
-                clinicsWithNewPrices,
-            );
-
-            void refreshMissingPrices(
-                clinicsWithNewPrices,
-                newTreatment,
-                requestId,
-            );
-        } catch (error) {
-            if (
-                !isPriceRequestCurrent(
-                    requestId,
-                )
-            ) {
-                return;
-            }
-
-            console.error(
-                "Treatment price update failed:",
-                error,
-            );
-
-            setRefreshingClinicIds(
-                new Set(),
-            );
-        }
     };
 
     /*
@@ -835,11 +800,13 @@ export default function PiaCall({
                 5,
             );
 
+            allClinicsRef.current = topResults;
+
             const requestId = ++priceRequestIdRef.current;
 
             const treatmentForSearch = selectedTreatment;
 
-            const resultsWithPrices = await addPricesToClinics(
+            const resultsWithPrices = selectTreatmentPrices(
                 topResults,
                 treatmentForSearch,
             );
@@ -2604,6 +2571,32 @@ function ClinicCallCard({
                     <h3 className="truncate text-sm font-black text-[#10233f] sm:text-base">
                         {clinic.name}
                     </h3>
+
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            clinic.clinicType === "public"
+                                ? "bg-blue-50 text-blue-700"
+                                : clinic.clinicType === "private"
+                                    ? "bg-[#ecfbfc] text-[#098e98]"
+                                    : "bg-slate-100 text-slate-600"
+                        }`}>
+                            {clinic.clinicType === "public"
+                                ? "Offentlig"
+                                : clinic.clinicType === "private"
+                                    ? "Privat"
+                                    : "Type ikke bekreftet"}
+                        </span>
+
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            clinic.acceptsNavGuarantee
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-slate-100 text-slate-500"
+                        }`}>
+                            {clinic.acceptsNavGuarantee
+                                ? "Aksepterer NAV-garanti"
+                                : "NAV ikke bekreftet"}
+                        </span>
+                    </div>
 
                     {clinic.address && (
                         <div className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-[#72899b]">

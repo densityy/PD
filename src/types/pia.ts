@@ -32,6 +32,10 @@ export interface Clinic {
     isPartner?: boolean;
     isVerified?: boolean;
     clinicType?: "public" | "private" | null;
+    countryCode?: "NO";
+    acceptsNavGuarantee?: boolean | null;
+    navGuaranteeSourceUrl?: string | null;
+    navGuaranteeVerifiedAt?: string | null;
     prices?: ClinicPrice[];
     priceListUrl?: string | null;
 }

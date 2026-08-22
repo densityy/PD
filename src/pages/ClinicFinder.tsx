@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { addPricesToClinics } from "@/services/priceService";
 import { refreshClinicPrices } from "@/services/priceRefreshService";
 import type { Clinic } from "@/types/pia";
 
@@ -18,7 +17,8 @@ import {
 } from "lucide-react";
 
 interface ClinicFinderProps {
-    onBack: () => void;
+    onBack?: () => void;
+    embedded?: boolean;
 }
 
 function toCanonicalTreatmentCode(treatment: string) {
@@ -91,6 +91,7 @@ function formatPhoneLink(phone: string) {
 
 export default function ClinicFinder({
     onBack,
+    embedded = false,
 }: ClinicFinderProps) {
     const [location, setLocation] = useState("Jessheim");
 
@@ -149,6 +150,7 @@ export default function ClinicFinder({
      * Undersøkelse results.
      */
     const priceRequestIdRef = useRef(0);
+    const allClinicsRef = useRef<Clinic[]>([]);
 
     function isRequestCurrent(
         requestId: number,
@@ -374,6 +376,8 @@ export default function ClinicFinder({
                 ? (data.clinics as Clinic[])
                 : [];
 
+            allClinicsRef.current = results;
+
             /*
              * Capture the treatment used for this
              * specific search.
@@ -400,55 +404,8 @@ export default function ClinicFinder({
              */
             setLoadingClinics(false);
 
-            const missingResults = visibleResults.filter(
-                (clinic) => !clinicHasPrice(clinic),
-            );
-
-            setRefreshingClinicIds(
-                new Set(
-                    missingResults.map(
-                        (clinic) => clinic.id,
-                    ),
-                ),
-            );
-
-            const hydratedMissing = missingResults.length > 0
-                ? await addPricesToClinics(
-                    missingResults,
-                    treatmentForSearch,
-                )
-                : [];
-
-            const hydratedById = new Map(
-                hydratedMissing.map(
-                    (clinic) => [clinic.id, clinic],
-                ),
-            );
-
-            const resultsWithPrices = visibleResults.map(
-                (clinic) =>
-                    hydratedById.get(clinic.id) ?? clinic,
-            );
-
-            if (
-                !isRequestCurrent(
-                    requestId,
-                )
-            ) {
-                return;
-            }
-
-            console.log(
-                "Clinics with prices:",
-                resultsWithPrices,
-            );
-
-            setClinics(
-                resultsWithPrices,
-            );
-
             void refreshMissingPrices(
-                resultsWithPrices,
+                visibleResults,
                 treatmentForSearch,
                 requestId,
             );
@@ -520,79 +477,25 @@ export default function ClinicFinder({
          * This prevents old Rotfylling numbers from
          * remaining visible while Undersøkelse loads.
          */
-        const cleanClinics = clinics.map(
-            (clinic): Clinic => ({
-                ...clinic,
-                prices: [],
-            }),
+        const cleanClinics = selectTreatmentPrices(
+            allClinicsRef.current,
+            newTreatment,
         );
 
         setClinics(
             cleanClinics,
         );
 
-        setRefreshingClinicIds(
-            new Set(
-                cleanClinics.map(
-                    (clinic) => clinic.id,
-                ),
-            ),
+        void refreshMissingPrices(
+            cleanClinics,
+            newTreatment,
+            requestId,
         );
-
-        try {
-            const clinicsWithNewPrices = await addPricesToClinics(
-                cleanClinics,
-                newTreatment,
-            );
-
-            /*
-             * Treatment changed again while
-             * lookup was running.
-             */
-            if (
-                !isRequestCurrent(
-                    requestId,
-                )
-            ) {
-                console.log(
-                    "Ignoring stale treatment response:",
-                    newTreatment,
-                );
-
-                return;
-            }
-
-            setClinics(
-                clinicsWithNewPrices,
-            );
-
-            void refreshMissingPrices(
-                clinicsWithNewPrices,
-                newTreatment,
-                requestId,
-            );
-        } catch (error) {
-            if (
-                !isRequestCurrent(
-                    requestId,
-                )
-            ) {
-                return;
-            }
-
-            console.error(
-                "Treatment price update failed:",
-                error,
-            );
-
-            setRefreshingClinicIds(
-                new Set(),
-            );
-        }
     }
 
     return (
-        <div className="min-h-screen bg-[#f4f8fb]">
+        <div className={embedded ? "bg-[#f4f8fb]" : "min-h-screen bg-[#f4f8fb]"}>
+            {!embedded && (
             <header className="border-b border-[#e2ebf1] bg-white">
                 <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-6 lg:px-8">
                     <button
@@ -623,6 +526,7 @@ export default function ClinicFinder({
                     </div>
                 </div>
             </header>
+            )}
 
             <main>
                 <section className="border-b border-[#e2ebf1] bg-white">
@@ -833,6 +737,37 @@ export default function ClinicFinder({
                                                     <h2 className="text-lg font-black text-[#10233f]">
                                                         {clinic.name}
                                                     </h2>
+
+                                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                                            clinic.clinicType === "public"
+                                                                ? "bg-blue-50 text-blue-700"
+                                                                : clinic.clinicType === "private"
+                                                                    ? "bg-[#ecfbfc] text-[#098e98]"
+                                                                    : "bg-slate-100 text-slate-600"
+                                                        }`}>
+                                                            {clinic.clinicType === "public"
+                                                                ? "Offentlig"
+                                                                : clinic.clinicType === "private"
+                                                                    ? "Privat"
+                                                                    : "Type ikke bekreftet"}
+                                                        </span>
+
+                                                        <span
+                                                            title={clinic.acceptsNavGuarantee
+                                                                ? "Klinikken oppgir at den aksepterer betalingsgaranti fra NAV. NAV vurderer hver søknad individuelt."
+                                                                : "Vi har ikke funnet en offisiell bekreftelse fra klinikken."}
+                                                            className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                                                clinic.acceptsNavGuarantee
+                                                                    ? "bg-emerald-50 text-emerald-700"
+                                                                    : "bg-slate-100 text-slate-500"
+                                                            }`}
+                                                        >
+                                                            {clinic.acceptsNavGuarantee
+                                                                ? "Aksepterer NAV-garanti"
+                                                                : "NAV-garanti ikke bekreftet"}
+                                                        </span>
+                                                    </div>
 
                                                     <div className="mt-2 flex items-start gap-2 text-sm text-[#72889a]">
                                                         <MapPin

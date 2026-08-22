@@ -17,6 +17,11 @@ interface ClassificationResult {
   sourceUrl: string | null;
 }
 
+interface NavGuaranteeResult {
+  accepted: boolean | null;
+  sourceUrl: string | null;
+}
+
 interface PageData {
   url: string;
   html: string;
@@ -67,6 +72,15 @@ const ABOUT_LINK_PATTERNS = [
   /about/i,
   /eierskap/i,
   /ownership/i,
+];
+
+const NAV_GUARANTEE_PATTERNS = [
+  /\bnav[-\s]?garanti\b/i,
+  /\bbetalingsgaranti\s+fra\s+nav\b/i,
+  /\bgaranti\s+fra\s+nav\b/i,
+  /\btar\s+imot\s+(?:betalings)?garanti\s+fra\s+nav\b/i,
+  /\baksepterer\s+(?:betalings)?garanti\s+fra\s+nav\b/i,
+  /\bdirekte\s+oppgj(?:ø|o)r\s+med\s+nav\b/i,
 ];
 
 function getHostname(
@@ -712,6 +726,63 @@ async function classifyClinic(
   };
 }
 
+function containsNavGuarantee(text: string) {
+  return NAV_GUARANTEE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function extractNavInformationLinks(html: string, pageUrl: string) {
+  const hostname = getHostname(pageUrl);
+  const links = new Set<string>();
+  const anchorRegex = /<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = anchorRegex.exec(html)) !== null) {
+    const searchable = `${htmlToText(match[2])} ${match[1]}`;
+    if (!/nav|betaling|finansiering|pris|sosialhjelp|garanti/i.test(searchable)) {
+      continue;
+    }
+
+    try {
+      const url = new URL(match[1], pageUrl);
+      if (["http:", "https:"].includes(url.protocol) && getHostname(url.toString()) === hostname) {
+        url.hash = "";
+        links.add(url.toString());
+      }
+    } catch {
+      // Ignore malformed links from third-party clinic sites.
+    }
+  }
+
+  return [...links].slice(0, 4);
+}
+
+async function detectNavGuarantee(
+  website?: string | null,
+): Promise<NavGuaranteeResult> {
+  if (!website) {
+    return { accepted: null, sourceUrl: null };
+  }
+
+  const homepage = await fetchPage(website);
+  if (!homepage) {
+    return { accepted: null, sourceUrl: website };
+  }
+
+  if (containsNavGuarantee(homepage.text)) {
+    return { accepted: true, sourceUrl: homepage.url };
+  }
+
+  for (const url of extractNavInformationLinks(homepage.html, homepage.url)) {
+    const page = await fetchPage(url);
+    if (page && containsNavGuarantee(page.text)) {
+      return { accepted: true, sourceUrl: page.url };
+    }
+  }
+
+  /* Absence of a statement is unknown, never a verified rejection. */
+  return { accepted: null, sourceUrl: homepage.url };
+}
+
 Deno.serve(
   async (
     request: Request,
@@ -841,7 +912,11 @@ Deno.serve(
             `
                         google_place_id,
                         clinic_type,
-                        classification_source_url
+                        classification_source_url,
+                        verified_at,
+                        nav_guarantee_accepted,
+                        nav_guarantee_source_url,
+                        nav_guarantee_checked_at
                         `,
           )
           .eq(
@@ -855,12 +930,8 @@ Deno.serve(
       }
 
       if (
-        existingClinic
-          ?.clinic_type ===
-        "public" ||
-        existingClinic
-          ?.clinic_type ===
-        "private"
+        existingClinic?.verified_at &&
+        existingClinic.nav_guarantee_checked_at
       ) {
         return new Response(
           JSON.stringify({
@@ -873,7 +944,7 @@ Deno.serve(
                 .clinic_type,
 
             confidence:
-              "high",
+              existingClinic.clinic_type ? "high" : "unknown",
 
             reason:
               "Previously classified and cached.",
@@ -882,16 +953,25 @@ Deno.serve(
               existingClinic
                 .classification_source_url ??
               null,
+
+            acceptsNavGuarantee:
+              existingClinic.nav_guarantee_accepted ?? null,
+
+            navGuaranteeSourceUrl:
+              existingClinic.nav_guarantee_source_url ?? null,
           }),
           { headers },
         );
       }
 
-      const classification =
-        await classifyClinic(
-          clinicName,
-          website,
-        );
+      const [classification, navGuarantee] =
+        await Promise.all([
+          classifyClinic(
+            clinicName,
+            website,
+          ),
+          detectNavGuarantee(website),
+        ]);
 
       console.log(
         "Final clinic classification:",
@@ -905,10 +985,7 @@ Deno.serve(
       /*
        * Cache only actual classifications.
        */
-      if (
-        classification
-          .clinicType
-      ) {
+      if (classification.clinicType || website) {
         const {
           error:
           upsertError,
@@ -941,6 +1018,18 @@ Deno.serve(
                 verified_at:
                   new Date()
                     .toISOString(),
+
+                country_code:
+                  "NO",
+
+                nav_guarantee_accepted:
+                  navGuarantee.accepted,
+
+                nav_guarantee_source_url:
+                  navGuarantee.sourceUrl,
+
+                nav_guarantee_checked_at:
+                  new Date().toISOString(),
               },
               {
                 onConflict:
@@ -959,6 +1048,10 @@ Deno.serve(
           googlePlaceId,
           clinicName,
           ...classification,
+          acceptsNavGuarantee:
+            navGuarantee.accepted,
+          navGuaranteeSourceUrl:
+            navGuarantee.sourceUrl,
         }),
         { headers },
       );

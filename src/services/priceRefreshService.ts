@@ -1,12 +1,12 @@
 import { supabase } from "@/lib/supabase";
-import { addPricesToClinics, getTreatmentCode } from "@/services/priceService";
+import {
+  addPricesToClinics,
+  getTreatmentCode,
+} from "@/services/priceService";
 import type { Clinic } from "@/types/pia";
 
-const DEFAULT_POLL_DELAY_MS = 2500;
-// New clinic sources can take longer than a cached lookup because the
-// background worker may need to discover and parse an external price list.
-const DEFAULT_MAX_POLLS = 24;
 const QUEUE_CONCURRENCY = 3;
+const PRICE_RECHECK_DELAYS_MS = [3000, 6000, 10000, 15000];
 
 export interface PriceRefreshUpdate {
   clinics: Clinic[];
@@ -19,13 +19,14 @@ interface RefreshClinicPricesOptions {
   treatment: string;
   signal?: AbortSignal;
   isCurrent?: () => boolean;
-  maxPolls?: number;
-  pollDelayMs?: number;
   onUpdate?: (update: PriceRefreshUpdate) => void;
 }
 
-function clinicHasPrice(clinic: Clinic) {
-  return Boolean(clinic.prices?.length);
+function clinicHasPrice(clinic: Clinic, treatmentCode?: string) {
+  if (!treatmentCode) return Boolean(clinic.prices?.length);
+  return Boolean(
+    clinic.prices?.some((price) => price.treatmentCode === treatmentCode),
+  );
 }
 
 function canContinue(
@@ -33,26 +34,6 @@ function canContinue(
   isCurrent?: () => boolean,
 ) {
   return !signal?.aborted && (isCurrent?.() ?? true);
-}
-
-function wait(milliseconds: number, signal?: AbortSignal) {
-  return new Promise<void>((resolve) => {
-    if (signal?.aborted) {
-      resolve();
-      return;
-    }
-
-    const timeout = window.setTimeout(resolve, milliseconds);
-
-    signal?.addEventListener(
-      "abort",
-      () => {
-        window.clearTimeout(timeout);
-        resolve();
-      },
-      { once: true },
-    );
-  });
 }
 
 async function queueClinic(
@@ -69,6 +50,7 @@ async function queueClinic(
         sourceUrl: clinic.priceListUrl ?? null,
         websiteUrl: clinic.website ?? null,
         treatmentCode,
+        countryCode: "NO",
       },
     },
   );
@@ -76,6 +58,8 @@ async function queueClinic(
   if (error) {
     throw error;
   }
+
+  return true;
 }
 
 async function queueWithLimit(
@@ -85,6 +69,7 @@ async function queueWithLimit(
   isCurrent?: () => boolean,
 ) {
   let nextIndex = 0;
+  const queuedClinicIds = new Set<string>();
 
   const workers = Array.from(
     { length: Math.min(QUEUE_CONCURRENCY, clinics.length) },
@@ -98,6 +83,7 @@ async function queueWithLimit(
 
         try {
           await queueClinic(clinic, treatmentCode);
+          queuedClinicIds.add(clinic.id);
         } catch (error) {
           console.error(`Could not queue a price refresh for ${clinic.name}:`, error);
         }
@@ -106,14 +92,38 @@ async function queueWithLimit(
   );
 
   await Promise.all(workers);
+  return queuedClinicIds;
 }
 
-function createUpdate(clinics: Clinic[], complete: boolean): PriceRefreshUpdate {
+function wait(delayMs: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+
+    const timeoutId = window.setTimeout(resolve, delayMs);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        window.clearTimeout(timeoutId);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+function createUpdate(
+  clinics: Clinic[],
+  complete: boolean,
+  treatmentCode?: string,
+): PriceRefreshUpdate {
   return {
     clinics,
     missingClinicIds: new Set(
       clinics
-        .filter((clinic) => !clinicHasPrice(clinic))
+        .filter((clinic) => !clinicHasPrice(clinic, treatmentCode))
         .map((clinic) => clinic.id),
     ),
     complete,
@@ -125,62 +135,63 @@ export async function refreshClinicPrices({
   treatment,
   signal,
   isCurrent,
-  maxPolls = DEFAULT_MAX_POLLS,
-  pollDelayMs = DEFAULT_POLL_DELAY_MS,
   onUpdate,
 }: RefreshClinicPricesOptions) {
   if (!canContinue(signal, isCurrent)) {
     return clinics;
   }
 
-  let latestClinics = clinics;
+  const latestClinics = clinics;
+  const treatmentCode = getTreatmentCode(treatment) ?? treatment;
   const missingClinics = latestClinics.filter(
-    (clinic) => !clinicHasPrice(clinic),
+    (clinic) => !clinicHasPrice(clinic, treatmentCode),
   );
 
   if (missingClinics.length === 0) {
-    onUpdate?.(createUpdate(latestClinics, true));
+    onUpdate?.(createUpdate(latestClinics, true, treatmentCode));
     return latestClinics;
   }
 
-  const treatmentCode = getTreatmentCode(treatment) ?? treatment;
-
-  await queueWithLimit(
+  /*
+   * Price discovery must never hold up the user-facing search. Queue the
+   * Norway-only refresh in the background and return the cached result now.
+   * A later search will automatically receive newly indexed prices.
+   */
+  const queuedClinicIds = await queueWithLimit(
     missingClinics,
     treatmentCode,
     signal,
     isCurrent,
   );
 
-  for (let attempt = 0; attempt < maxPolls; attempt += 1) {
-    await wait(pollDelayMs, signal);
+  if (queuedClinicIds.size === 0 || !canContinue(signal, isCurrent)) {
+    onUpdate?.(createUpdate(latestClinics, true, treatmentCode));
+    return latestClinics;
+  }
 
+  let refreshedClinics = latestClinics;
+  onUpdate?.(createUpdate(refreshedClinics, false, treatmentCode));
+
+  for (const delayMs of PRICE_RECHECK_DELAYS_MS) {
+    await wait(delayMs, signal);
     if (!canContinue(signal, isCurrent)) {
-      return latestClinics;
+      return refreshedClinics;
     }
 
-    try {
-      latestClinics = await addPricesToClinics(
-        latestClinics,
-        treatment,
-      );
+    refreshedClinics = await addPricesToClinics(
+      refreshedClinics,
+      treatmentCode,
+    );
 
-      if (!canContinue(signal, isCurrent)) {
-        return latestClinics;
-      }
+    const update = createUpdate(refreshedClinics, false, treatmentCode);
+    onUpdate?.(update);
 
-      const update = createUpdate(latestClinics, false);
-      onUpdate?.(update);
-
-      if (update.missingClinicIds.size === 0) {
-        onUpdate?.(createUpdate(latestClinics, true));
-        return latestClinics;
-      }
-    } catch (error) {
-      console.error("Could not refresh clinic prices:", error);
+    if (update.missingClinicIds.size === 0) {
+      onUpdate?.(createUpdate(refreshedClinics, true, treatmentCode));
+      return refreshedClinics;
     }
   }
 
-  onUpdate?.(createUpdate(latestClinics, true));
-  return latestClinics;
+  onUpdate?.(createUpdate(refreshedClinics, true, treatmentCode));
+  return refreshedClinics;
 }

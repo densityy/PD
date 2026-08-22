@@ -34,6 +34,11 @@ interface GooglePlace {
   internationalPhoneNumber?: string;
 
   businessStatus?: string;
+
+  addressComponents?: Array<{
+    shortText?: string;
+    types?: string[];
+  }>;
 }
 
 interface GooglePlacesResponse {
@@ -59,6 +64,10 @@ interface ClinicDirectoryRow {
 
   verified: boolean;
   verified_at: string | null;
+  country_code: 'NO';
+  nav_guarantee_accepted: boolean | null;
+  nav_guarantee_source_url: string | null;
+  nav_guarantee_checked_at: string | null;
 }
 
 type PriceSourceType =
@@ -223,6 +232,10 @@ async function fetchPocketDentistData(
       'classification_source_url',
       'verified',
       'verified_at',
+      'country_code',
+      'nav_guarantee_accepted',
+      'nav_guarantee_source_url',
+      'nav_guarantee_checked_at',
     ].join(','),
   );
 
@@ -441,6 +454,56 @@ async function fetchPocketDentistData(
   };
 }
 
+function isNorwegianPlace(place: GooglePlace) {
+  return place.addressComponents?.some(
+    (component) =>
+      component.types?.includes('country') &&
+      component.shortText?.toUpperCase() === 'NO',
+  ) ?? false;
+}
+
+function cacheNorwegianClinics(places: GooglePlace[]) {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceRoleKey || places.length === 0) return;
+
+  const headers = {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+    'Content-Type': 'application/json',
+    Prefer: 'resolution=merge-duplicates,return=minimal',
+  };
+
+  const rows = places.map((place) => ({
+    google_place_id: place.id,
+    clinic_name: place.displayName?.text ?? 'Ukjent tannklinikk',
+    website: place.websiteUri ?? null,
+    country_code: 'NO',
+    last_seen_at: new Date().toISOString(),
+  }));
+
+  const directoryTask = fetch(`${supabaseUrl}/rest/v1/clinic_directory?on_conflict=google_place_id`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(rows),
+  });
+
+  const classificationTasks = places.map((place) =>
+    fetch(`${supabaseUrl}/functions/v1/classify-clinic`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        googlePlaceId: place.id,
+        clinicName: place.displayName?.text,
+        website: place.websiteUri ?? null,
+        address: place.formattedAddress ?? null,
+      }),
+    }).catch((error) => console.error('Could not classify clinic:', error)),
+  );
+
+  EdgeRuntime.waitUntil(Promise.allSettled([directoryTask, ...classificationTasks]));
+}
+
 Deno.serve(
   async (
     request: Request,
@@ -501,6 +564,16 @@ Deno.serve(
         'number' &&
         typeof body.longitude ===
         'number';
+
+      if (
+        hasCoordinates &&
+        (
+          body.latitude! < 57.5 || body.latitude! > 71.5 ||
+          body.longitude! < 4 || body.longitude! > 32
+        )
+      ) {
+        return jsonResponse({ error: 'Pocket Dentist currently searches Norway only.' }, 400);
+      }
 
       if (
         !location &&
@@ -610,6 +683,7 @@ Deno.serve(
                   'places.nationalPhoneNumber',
                   'places.internationalPhoneNumber',
                   'places.businessStatus',
+                  'places.addressComponents',
                 ].join(','),
             },
 
@@ -656,8 +730,11 @@ Deno.serve(
               .displayName
               ?.text &&
             place.businessStatus !==
-            'CLOSED_PERMANENTLY',
+            'CLOSED_PERMANENTLY' &&
+            isNorwegianPlace(place),
         );
+
+      cacheNorwegianClinics(googlePlaces);
 
       const googlePlaceIds =
         googlePlaces.map(
@@ -844,6 +921,18 @@ Deno.serve(
                 verifiedClinic
                   ?.clinic_type ??
                 null,
+
+              countryCode:
+                'NO' as const,
+
+              acceptsNavGuarantee:
+                verifiedClinic?.nav_guarantee_accepted ?? null,
+
+              navGuaranteeSourceUrl:
+                verifiedClinic?.nav_guarantee_source_url ?? null,
+
+              navGuaranteeVerifiedAt:
+                verifiedClinic?.nav_guarantee_checked_at ?? null,
 
               isVerified:
                 verifiedClinic

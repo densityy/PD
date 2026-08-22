@@ -8,6 +8,7 @@ interface QueueRequest {
     sourceUrl?: string | null;
     websiteUrl?: string | null;
     treatmentCode?: string | null;
+    countryCode?: string | null;
 }
 
 const corsHeaders = {
@@ -140,6 +141,15 @@ Deno.serve(async (request: Request) => {
             typeof body.treatmentCode === 'string'
                 ? body.treatmentCode.trim() || null
                 : null;
+
+        const countryCode = body.countryCode?.trim().toUpperCase();
+
+        if (countryCode !== 'NO') {
+            return jsonResponse(
+                { error: 'Price refresh is currently restricted to Norwegian clinics.' },
+                400,
+            );
+        }
 
         if (
             !googlePlaceId ||
