@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import type { CollectedPatientData } from '@/types/pia';
 
+export const PRIVACY_NOTICE_VERSION = '2026-08-22';
+
 const REASON_LABELS: Record<string, string> = {
     toothache: 'Tannpine',
     checkup: 'Rutinekontroll',
@@ -46,6 +48,9 @@ export async function savePatientReferral(
                 clinicName: data.selectedClinic.name,
                 clinicGooglePlaceId: data.selectedClinic.id,
                 reason: reasonLabel,
+                healthConsent: true,
+                referralConsent: true,
+                privacyNoticeVersion: PRIVACY_NOTICE_VERSION,
             },
         });
 

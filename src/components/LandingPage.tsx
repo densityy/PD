@@ -221,10 +221,20 @@ export default function LandingPage() {
       </main>
 
       <footer className="border-t border-[#dceaf4] bg-white py-9">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 text-sm text-[#8297aa] sm:flex-row sm:items-center sm:justify-between lg:px-8">
-          <p className="font-extrabold text-[#10233f]">Pocket Dentist</p>
-          <p>© 2026 Pocket Dentist. Alle rettigheter forbeholdt.</p>
-          <a href="mailto:hei@pocketdentist.no" className="font-semibold">Kontakt</a>
+        <div className="mx-auto grid max-w-7xl gap-5 px-5 text-sm text-[#8297aa] sm:grid-cols-3 lg:px-8">
+          <div>
+            <p className="font-extrabold text-[#10233f]">Pocket Dentist</p>
+            <p className="mt-1 text-xs">HANSEN GROUP AS · Org.nr. 938 162 379</p>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-2 sm:justify-center">
+            <a href="#/personvern" className="font-semibold hover:text-[#10233f]">Personvern</a>
+            <a href="#/vilkar" className="font-semibold hover:text-[#10233f]">Vilkår</a>
+            <a href="#/informasjonskapsler" className="font-semibold hover:text-[#10233f]">Informasjonskapsler</a>
+          </div>
+          <div className="sm:text-right">
+            <a href="mailto:hei@pocketdentist.no" className="font-semibold hover:text-[#10233f]">hei@pocketdentist.no</a>
+            <p className="mt-1 text-xs">© 2026 Pocket Dentist</p>
+          </div>
         </div>
       </footer>
 

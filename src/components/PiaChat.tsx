@@ -17,10 +17,7 @@ import { searchClinics } from "@/services/clinicService";
 
 import { sendMessageToPia } from "@/services/piaService";
 
-import {
-  getReasonLabel,
-  savePatientReferral,
-} from "@/services/referralService";
+import { PRIVACY_NOTICE_VERSION } from "@/services/referralService";
 
 import type {
   ChatMessage,
@@ -49,19 +46,6 @@ interface PiaAvatarProps {
   state?: PiaAvatarState;
   size?: number;
   showOnlineDot?: boolean;
-}
-
-function isValidPhone(
-  value: string,
-) {
-  const digits = value.replace(
-    /\D/g,
-    "",
-  );
-
-  return (
-    digits.length >= 8
-  );
 }
 
 function isSimpleGreeting(
@@ -226,6 +210,10 @@ export default function PiaChat() {
     setLocationError,
   ] = useState("");
 
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [healthConsentConfirmed, setHealthConsentConfirmed] = useState(false);
+  const [healthConsentAccepted, setHealthConsentAccepted] = useState(false);
+
   const [
     collected,
     setCollected,
@@ -257,79 +245,6 @@ export default function PiaChat() {
     : isTyping
     ? "thinking"
     : "idle";
-
-  /*
-   * If the user has previously granted
-   * location use to Pocket Dentist,
-   * reuse that permission on future opens.
-   *
-   * We store permission intent only.
-   * Coordinates themselves are NOT stored.
-   */
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(
-        "pocket-dentist-location",
-      );
-
-      if (
-        saved ===
-          "granted"
-      ) {
-        setLocationConsent(
-          "granted",
-        );
-
-        if (
-          navigator.geolocation
-        ) {
-          navigator.geolocation.getCurrentPosition(
-            (
-              position,
-            ) => {
-              setCoordinates(
-                {
-                  latitude: position
-                    .coords
-                    .latitude,
-
-                  longitude: position
-                    .coords
-                    .longitude,
-                },
-              );
-            },
-            () => {
-              setCoordinates(
-                null,
-              );
-
-              setLocationConsent(
-                "not_now",
-              );
-
-              try {
-                window.localStorage.removeItem(
-                  "pocket-dentist-location",
-                );
-              } catch {
-                // Local storage is optional.
-              }
-            },
-            {
-              enableHighAccuracy: false,
-
-              timeout: 8000,
-
-              maximumAge: 300000,
-            },
-          );
-        }
-      }
-    } catch {
-      // Local storage is optional.
-    }
-  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo(
@@ -409,6 +324,7 @@ export default function PiaChat() {
   useEffect(() => {
     if (
       isOpen &&
+      healthConsentAccepted &&
       messages.length ===
         0
     ) {
@@ -416,6 +332,7 @@ export default function PiaChat() {
     }
   }, [
     isOpen,
+    healthConsentAccepted,
     messages.length,
   ]);
 
@@ -536,15 +453,6 @@ export default function PiaChat() {
         setLocationConsent(
           "granted",
         );
-
-        try {
-          window.localStorage.setItem(
-            "pocket-dentist-location",
-            "granted",
-          );
-        } catch {
-          // Optional.
-        }
 
         const pendingSearch = pendingClinicSearchRef.current;
 
@@ -737,9 +645,7 @@ export default function PiaChat() {
                 },
               );
 
-              setStep(
-                "clinicSelection",
-              );
+              setStep("greeting");
 
               return;
             }
@@ -793,9 +699,7 @@ export default function PiaChat() {
           clinics: result.clinics,
         });
 
-        setStep(
-          "clinicSelection",
-        );
+        setStep("greeting");
       } else {
         updateLatestClinicMessage(
           result.clinics,
@@ -1008,146 +912,6 @@ export default function PiaChat() {
     }
   };
 
-  const selectClinic = (
-    clinic: Clinic,
-  ) => {
-    searchAbortRef.current?.abort();
-
-    setIsRefreshingPrices(
-      false,
-    );
-
-    setMessages(
-      (
-        current,
-      ) => [
-        ...current,
-
-        {
-          sender: "user",
-
-          text: `Jeg velger ${clinic.name}`,
-        },
-      ],
-    );
-
-    setCollected(
-      (
-        current,
-      ) => ({
-        ...current,
-
-        selectedClinic: clinic,
-      }),
-    );
-
-    addPiaMessage({
-      sender: "pia",
-
-      text: `${clinic.name} er valgt. Hva heter du?`,
-
-      referral: {
-        clinicId: clinic.id,
-
-        clinicName: clinic.name,
-
-        reason: getReasonLabel(
-          collected.reason,
-        ),
-      },
-    });
-
-    setStep(
-      "name",
-    );
-  };
-
-  const saveReferral = async (
-    data: CollectedPatientData,
-  ) => {
-    if (
-      !data.selectedClinic
-    ) {
-      addPiaMessage({
-        sender: "pia",
-
-        text: "Du må velge en klinikk før forespørselen kan sendes.",
-      });
-
-      setStep(
-        "clinicSelection",
-      );
-
-      return;
-    }
-
-    setIsSaving(
-      true,
-    );
-
-    setStep(
-      "saving",
-    );
-
-    try {
-      const result = await savePatientReferral(
-        data,
-      );
-
-      addPiaMessage({
-        sender: "pia",
-
-        text: `Takk, ${data.patientName}! Forespørselen er registrert ` +
-          `for ${result.clinic.name}. Klinikken kan kontakte deg på ${data.patientPhone}.`,
-
-        referral: {
-          clinicId: result
-            .clinic
-            .id,
-
-          clinicName: result
-            .clinic
-            .name,
-
-          reason: result.reasonLabel,
-        },
-
-        options: [
-          "Ferdig",
-        ],
-      });
-
-      setStep(
-        "done",
-      );
-    } catch (error) {
-      console.error(
-        "Kunne ikke lagre henvisningen:",
-        error,
-      );
-
-      addPiaMessage({
-        sender: "pia",
-
-        text:
-          "Beklager, noe gikk galt da forespørselen skulle lagres. Ingen forespørsel ble bekreftet.",
-
-        options: [
-          "Prøv på nytt",
-          "Start på nytt",
-        ],
-      });
-
-      setStep(
-        "consent",
-      );
-    } finally {
-      setIsSaving(
-        false,
-      );
-    }
-  };
-
   const processAnswer = async (
     answer: string,
     historyBeforeUserMessage: ChatMessage[],
@@ -1170,19 +934,6 @@ export default function PiaChat() {
 
     if (
       step ===
-        "clinicSelection"
-    ) {
-      addPiaMessage({
-        sender: "pia",
-
-        text: "Velg en av klinikkene i listen før vi går videre.",
-      });
-
-      return;
-    }
-
-    if (
-      step ===
         "greeting" &&
       isSimpleGreeting(
         answer,
@@ -1193,179 +944,6 @@ export default function PiaChat() {
 
         text: "Hei 😊 Hva kan jeg hjelpe deg med?",
       });
-
-      return;
-    }
-
-    if (
-      step ===
-        "name"
-    ) {
-      const patientName = answer.trim();
-
-      if (
-        patientName.length <
-          2
-      ) {
-        addPiaMessage({
-          sender: "pia",
-
-          text:
-            "Skriv inn navnet ditt, så klinikken vet hvem de skal kontakte.",
-        });
-
-        return;
-      }
-
-      setCollected(
-        (
-          current,
-        ) => ({
-          ...current,
-          patientName,
-        }),
-      );
-
-      addPiaMessage({
-        sender: "pia",
-
-        text:
-          `Hyggelig å møte deg, ${patientName}! Hva er telefonnummeret ditt?`,
-      });
-
-      setStep(
-        "phone",
-      );
-
-      return;
-    }
-
-    if (
-      step ===
-        "phone"
-    ) {
-      if (
-        !isValidPhone(
-          answer,
-        )
-      ) {
-        addPiaMessage({
-          sender: "pia",
-
-          text: "Telefonnummeret ser litt kort ut. Skriv inn minst 8 sifre.",
-        });
-
-        return;
-      }
-
-      const patientPhone = answer.trim();
-
-      const finalData: CollectedPatientData = {
-        ...collected,
-        patientPhone,
-      };
-
-      setCollected(
-        finalData,
-      );
-
-      const clinic = finalData.selectedClinic;
-
-      if (
-        !clinic
-      ) {
-        addPiaMessage({
-          sender: "pia",
-
-          text: "Jeg finner ikke den valgte klinikken. Velg klinikk på nytt.",
-        });
-
-        setStep(
-          "clinicSelection",
-        );
-
-        return;
-      }
-
-      addPiaMessage({
-        sender: "pia",
-
-        text:
-          `Da har jeg det jeg trenger. Kan jeg sende forespørselen til ${clinic.name} med navnet og telefonnummeret ditt?`,
-
-        options: [
-          "Ja, send forespørselen",
-          "Nei takk",
-        ],
-
-        referral: {
-          clinicId: clinic.id,
-
-          clinicName: clinic.name,
-
-          reason: getReasonLabel(
-            finalData.reason,
-          ),
-        },
-      });
-
-      setStep(
-        "consent",
-      );
-
-      return;
-    }
-
-    if (
-      step ===
-        "consent"
-    ) {
-      if (
-        answer ===
-          "Start på nytt"
-      ) {
-        startConversation();
-        return;
-      }
-
-      if (
-        answer ===
-          "Prøv på nytt"
-      ) {
-        await saveReferral(
-          collected,
-        );
-
-        return;
-      }
-
-      if (
-        answer
-          .toLowerCase()
-          .startsWith(
-            "ja",
-          )
-      ) {
-        await saveReferral(
-          collected,
-        );
-
-        return;
-      }
-
-      addPiaMessage({
-        sender: "pia",
-
-        text: "Helt i orden. Opplysningene dine ble ikke sendt eller lagret.",
-
-        options: [
-          "Start på nytt",
-        ],
-      });
-
-      setStep(
-        "done",
-      );
 
       return;
     }
@@ -1482,6 +1060,24 @@ export default function PiaChat() {
       startConversation,
       0,
     );
+  };
+
+  const withdrawConsent = () => {
+    searchAbortRef.current?.abort();
+    pendingClinicSearchRef.current = null;
+    setCoordinates(null);
+    setLocationConsent("not_now");
+    setMessages([]);
+    setCollected({});
+    setInput("");
+    setStep("greeting");
+    setAgeConfirmed(false);
+    setHealthConsentConfirmed(false);
+    setHealthConsentAccepted(false);
+    setIsTyping(false);
+    setIsSaving(false);
+    setIsSearching(false);
+    setIsRefreshingPrices(false);
   };
 
   const handleSubmit = (
@@ -1834,7 +1430,73 @@ export default function PiaChat() {
             </div>
           </div>
 
-          {locationConsent ===
+          {!healthConsentAccepted && (
+            <div className="bg-[#f7f9fb] p-5 sm:p-6">
+              <div className="rounded-2xl border border-[#dce8ee] bg-white p-5 shadow-sm">
+                <p className="text-lg font-bold text-[#0d1e3d]">
+                  Før du starter chatten
+                </p>
+                <p className="mt-2 text-sm leading-6 text-gray-600">
+                  Pia er en KI-assistent som hjelper deg å finne tannklinikk og
+                  sammenligne publiserte priser. Hun stiller ikke diagnose og
+                  erstatter ikke tannlege eller akutt helsehjelp.
+                </p>
+
+                <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={ageConfirmed}
+                    onChange={(event) => setAgeConfirmed(event.target.checked)}
+                    className="mt-1 h-4 w-4 accent-[#14c8d4]"
+                  />
+                  <span>Jeg bekrefter at jeg er 18 år eller eldre.</span>
+                </label>
+
+                <label className="mt-3 flex cursor-pointer items-start gap-3 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={healthConsentConfirmed}
+                    onChange={(event) =>
+                      setHealthConsentConfirmed(event.target.checked)
+                    }
+                    className="mt-1 h-4 w-4 accent-[#14c8d4]"
+                  />
+                  <span>
+                    Jeg samtykker uttrykkelig til at Pocket Dentist behandler
+                    opplysninger jeg skriver om tannhelse for å svare i chatten
+                    og finne klinikker. Les{" "}
+                    <a
+                      href="#/personvern"
+                      className="font-semibold text-[#078e99] underline"
+                    >
+                      personvernerklæringen
+                    </a>
+                    . Versjon {PRIVACY_NOTICE_VERSION}.
+                  </span>
+                </label>
+
+                <button
+                  type="button"
+                  disabled={!ageConfirmed || !healthConsentConfirmed}
+                  onClick={() => {
+                    if (ageConfirmed && healthConsentConfirmed) {
+                      setHealthConsentAccepted(true);
+                    }
+                  }}
+                  className="mt-5 w-full rounded-xl bg-[#14c8d4] px-4 py-3 text-sm font-bold text-white hover:bg-[#0fb3be] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Start chat med Pia
+                </button>
+
+                <p className="mt-3 text-center text-[11px] leading-4 text-gray-500">
+                  Ved alvorlige eller akutte symptomer: kontakt tannlege,
+                  legevakt 116 117 eller nødnummer 113.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {healthConsentAccepted && locationConsent ===
               "prompt" && (
             <div className="border-b border-[#dcebef] bg-[#f4fbfc] px-4 py-3">
               <div className="flex gap-3">
@@ -1852,7 +1514,8 @@ export default function PiaChat() {
 
                   <p className="mt-1 text-[11px] leading-4 text-gray-500">
                     Pia kan bruke posisjonen din når hun søker etter
-                    tannklinikker. Vi lagrer ikke posisjonen din i nettleseren.
+                    tannklinikker i dette søket. Posisjonen lagres ikke i
+                    nettleseren, og du kan skrive inn sted i stedet.
                   </p>
 
                   <div className="mt-2 flex gap-2">
@@ -1883,7 +1546,7 @@ export default function PiaChat() {
             </div>
           )}
 
-          {locationConsent ===
+          {healthConsentAccepted && locationConsent ===
               "granted" &&
             coordinates && (
             <div className="flex items-center gap-2 border-b border-[#e7eff3] bg-white px-4 py-2 text-[11px] font-medium text-[#527182]">
@@ -1898,7 +1561,7 @@ export default function PiaChat() {
 
           <div
             ref={scrollRef}
-            className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#f7f9fb] p-3.5 sm:min-h-[340px] sm:max-h-[540px]"
+            className={`${healthConsentAccepted ? "" : "hidden"} min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#f7f9fb] p-3.5 sm:min-h-[340px] sm:max-h-[540px]`}
           >
             {messages.map(
               (
@@ -2181,23 +1844,6 @@ export default function PiaChat() {
                                     )}
                                   </div>
 
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      selectClinic(
-                                        clinic,
-                                      )
-                                    }
-                                    disabled={
-                                      isSaving ||
-                                      isSearching ||
-                                      step !==
-                                        "clinicSelection"
-                                    }
-                                    className="mt-3 w-full rounded-xl bg-[#0d1e3d] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#143a6e] disabled:cursor-not-allowed disabled:opacity-40"
-                                  >
-                                    Velg denne klinikken
-                                  </button>
                                 </div>
                               );
                             },
@@ -2306,14 +1952,11 @@ export default function PiaChat() {
 
           <form
             onSubmit={handleSubmit}
-            className="flex items-center gap-2 border-t border-gray-100 bg-white p-3"
+            className={`${healthConsentAccepted ? "flex" : "hidden"} items-center gap-2 border-t border-gray-100 bg-white p-3`}
           >
             <input
               ref={inputRef}
-              type={step ===
-                  "phone"
-                ? "tel"
-                : "text"}
+              type="text"
               value={input}
               onChange={(
                 event,
@@ -2324,23 +1967,12 @@ export default function PiaChat() {
                     .value,
                 )}
               placeholder={step ===
-                  "name"
-                ? "Skriv navnet ditt..."
-                : step ===
-                    "phone"
-                ? "Skriv telefonnummer..."
-                : step ===
-                    "clinicSelection"
-                ? "Velg en klinikk ovenfor..."
-                : step ===
                     "location"
                 ? "Skriv by, område eller postnummer..."
                 : "Skriv til Pia..."}
               disabled={isSaving ||
                 isSearching ||
-                isTyping ||
-                step ===
-                  "clinicSelection"}
+                isTyping}
               className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-[#14c8d4] focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             />
 
@@ -2349,9 +1981,7 @@ export default function PiaChat() {
               disabled={!input.trim() ||
                 isSaving ||
                 isSearching ||
-                isTyping ||
-                step ===
-                  "clinicSelection"}
+                isTyping}
               className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#14c8d4] transition-all hover:bg-[#0fb3be] disabled:opacity-40"
               aria-label="Send melding"
             >
@@ -2361,6 +1991,21 @@ export default function PiaChat() {
               />
             </button>
           </form>
+
+          {healthConsentAccepted && (
+            <div className="flex items-center justify-center gap-3 border-t border-gray-100 bg-white px-3 pb-2 text-[10px] text-gray-500">
+              <a href="#/personvern" className="underline hover:text-gray-700">
+                Personvern
+              </a>
+              <button
+                type="button"
+                onClick={withdrawConsent}
+                className="underline hover:text-gray-700"
+              >
+                Trekk tilbake samtykke og nullstill
+              </button>
+            </div>
+          )}
         </div>
       )}
     </>

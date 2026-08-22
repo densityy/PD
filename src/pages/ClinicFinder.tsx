@@ -1000,6 +1000,30 @@ export default function ClinicFinder({
                             )}
                         </div>
                     )}
+
+                    {clinics.length > 0 && (
+                        <p className="mt-6 text-center text-xs leading-5 text-[#7d91a3]">
+                            Enkelte klinikkopplysninger leveres av Google. Se{" "}
+                            <a
+                                href="https://policies.google.com/terms"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="font-bold underline"
+                            >
+                                Googles vilkår
+                            </a>{" "}
+                            og{" "}
+                            <a
+                                href="https://policies.google.com/privacy"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="font-bold underline"
+                            >
+                                personvernregler
+                            </a>
+                            . Pris og støtteordninger må bekreftes med klinikken.
+                        </p>
+                    )}
                 </section>
             </main>
         </div>

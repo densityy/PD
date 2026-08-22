@@ -7,6 +7,9 @@ interface CreateReferralRequest {
   clinicName: string;
   clinicGooglePlaceId?: string;
   reason: string;
+  healthConsent: boolean;
+  referralConsent: boolean;
+  privacyNoticeVersion: string;
 }
 
 const corsHeaders = {
@@ -90,6 +93,21 @@ Deno.serve(async (request: Request) => {
       200,
     );
     const reason = cleanText(body.reason, 200);
+    const privacyNoticeVersion = cleanText(
+      body.privacyNoticeVersion,
+      40,
+    );
+
+    if (
+      body.healthConsent !== true ||
+      body.referralConsent !== true ||
+      !privacyNoticeVersion
+    ) {
+      return jsonResponse(
+        { error: 'Required consent is missing.' },
+        400,
+      );
+    }
 
     if (patientName.length < 2) {
       return jsonResponse(
@@ -134,6 +152,12 @@ Deno.serve(async (request: Request) => {
         referral_reason: reason,
         started_at: now,
         ended_at: now,
+        health_consent_at: now,
+        referral_consent_at: now,
+        privacy_notice_version: privacyNoticeVersion,
+        expires_at: new Date(
+          Date.now() + 30 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
       })
       .select('id')
       .single();
@@ -162,6 +186,11 @@ Deno.serve(async (request: Request) => {
         clinic_id: null,
         reason,
         status: 'confirmed',
+        referral_consent_at: now,
+        privacy_notice_version: privacyNoticeVersion,
+        expires_at: new Date(
+          Date.now() + 30 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
       })
       .select('id')
       .single();
